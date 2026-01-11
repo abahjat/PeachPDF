@@ -402,3 +402,5 @@ FodyWeavers.xsd
 /src/PeachPDF.TestHarness/bahjat.html
 /src/PeachPDF.TestHarness/bahjat.pdf
 /src/.claude/settings.local.json
+/src/PeachPDF.TestHarness/acid2.pdf
+/src/PeachPDF.TestHarness/rfc2324.pdf

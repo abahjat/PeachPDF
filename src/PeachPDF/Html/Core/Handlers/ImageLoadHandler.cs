@@ -170,7 +170,24 @@ namespace PeachPDF.Html.Core.Handlers
 
             if (imagePartsCount <= 0) return null;
 
-            byte[] imageData = base64PartsCount > 0 ? Convert.FromBase64String(s[1].Trim()) : new UTF8Encoding().GetBytes(Uri.UnescapeDataString(s[1].Trim()));
+            var dataString = s[1].Trim();
+            byte[] imageData;
+
+            if (base64PartsCount > 0)
+            {
+                // URL-decode the base64 string first (handles %2F, %2B, %3D, etc.)
+                // then remove any whitespace which is allowed in data URIs but not in base64
+                var base64String = Uri.UnescapeDataString(dataString)
+                    .Replace("\r", "")
+                    .Replace("\n", "")
+                    .Replace(" ", "");
+                imageData = Convert.FromBase64String(base64String);
+            }
+            else
+            {
+                imageData = new UTF8Encoding().GetBytes(Uri.UnescapeDataString(dataString));
+            }
+
             return LoadImageFromStream(new MemoryStream(imageData));
         }
 
