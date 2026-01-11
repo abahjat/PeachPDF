@@ -2,7 +2,8 @@
 using PeachPDF;
 using PeachPDF.PdfSharpCore;
 
-var html = File.ReadAllText("acid2.html");
+var fileName = "bahjat";//"acid2";
+var html = File.ReadAllText($"{fileName}.html");
 
 PdfGenerateConfig pdfConfig = new()
 {
@@ -15,5 +16,5 @@ var pdfGenerator = new PdfGenerator();
 var document = await pdfGenerator.GeneratePdf(html, pdfConfig);
 document.Save(stream);
 
-File.Delete("acid2.pdf");
-File.WriteAllBytes("acid2.pdf", stream.ToArray());
+File.Delete($"{fileName}.pdf");
+File.WriteAllBytes($"{fileName}.pdf", stream.ToArray());
