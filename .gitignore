@@ -398,3 +398,7 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+/src/CLAUDE.md
+/src/PeachPDF.TestHarness/bahjat.html
+/src/PeachPDF.TestHarness/bahjat.pdf
+/src/.claude/settings.local.json
