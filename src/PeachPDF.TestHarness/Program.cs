@@ -11,8 +11,8 @@ PdfGenerateConfig pdfConfig = new()
 };
 
 var stream = new MemoryStream();
-
-var document = PdfGenerator.GeneratePdf(html, pdfConfig);
+var pdfGenerator = new PdfGenerator();
+var document = await pdfGenerator.GeneratePdf(html, pdfConfig);
 document.Save(stream);
 
 File.Delete("acid2.pdf");

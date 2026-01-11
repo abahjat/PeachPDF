@@ -25,8 +25,8 @@
 	  <EmbeddedResource Include="Html\Core\Utils\ImageLoad.png" />
 	</ItemGroup>
 	<ItemGroup>
-	  <PackageReference Include="ExCSS" Version="4.3.0" />
-	  <PackageReference Include="MimeKit" Version="4.9.0" />
+	  <PackageReference Include="ExCSS" Version="4.3.1" />
+	  <PackageReference Include="MimeKit" Version="4.14.0" />
 	</ItemGroup>
 	<ItemGroup>
 	  <ProjectReference Include="..\PdfSharpCore\PeachPDF.PdfSharpCore.csproj" />
