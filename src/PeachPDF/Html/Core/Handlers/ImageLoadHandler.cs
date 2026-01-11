@@ -250,7 +250,7 @@ namespace PeachPDF.Html.Core.Handlers
             {
                 Image = _htmlContainer.Adapter.ImageFromStream(stream);
             }
-            catch (UnknownImageFormatException exception)
+            catch (UnknownImageFormatException)
             {
                 Image = _htmlContainer.Adapter.GetLoadingFailedImage();
             }

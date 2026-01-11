@@ -326,8 +326,7 @@ namespace PeachPDF.Html.Core.Parse
                         box.Direction = value.ToLower();
                         break;
                     case HtmlConstants.Face:
-                        //box.FontFamily = _cssParser.ParseFontFamily(value);
-                        throw new NotImplementedException();
+                        box.FontFamily = value;
                         break;
                     case HtmlConstants.Height:
                         box.Height = TranslateLength(value);
