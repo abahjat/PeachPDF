@@ -18,20 +18,27 @@ namespace PeachPDF.Html.Core.Utils
     internal static class CssConstants
     {
         public const string Absolute = "absolute";
-        public const string Auto = "auto";
+        public const string After = "after";
         public const string Always = "always";
+        public const string Auto = "auto";
         public const string Avoid = "avoid";
         public const string Baseline = "baseline";
+        public const string Before = "before";
         public const string Blink = "blink";
         public const string Block = "block";
         public const string InlineBlock = "inline-block";
         public const string Bold = "bold";
         public const string Bolder = "bolder";
+        public const string BorderBox = "border-box";
+        public const string Both = "both";
         public const string Bottom = "bottom";
         public const string BreakAll = "break-all";
         public const string KeepAll = "keep-all";
         public const string Center = "center";
         public const string Collapse = "collapse";
+        public const string Counter = "counter";
+        public const string ContentBox = "content-box";
+        public const string CurrentColor = "currentcolor";
         public const string Cursive = "cursive";
         public const string Circle = "circle";
         public const string Decimal = "decimal";
@@ -41,8 +48,10 @@ namespace PeachPDF.Html.Core.Utils
         public const string Fixed = "fixed";
         public const string Hide = "hide";
         public const string Inherit = "inherit";
+        public const string Initial = "initial";
         public const string Inline = "inline";
         public const string InlineTable = "inline-table";
+        public const string Inside = "inside";
         public const string Inset = "inset";
         public const string Italic = "italic";
         public const string Justify = "justify";
@@ -72,14 +81,21 @@ namespace PeachPDF.Html.Core.Utils
         public const string NoWrap = "nowrap";
         public const string Oblique = "oblique";
         public const string Outset = "outset";
+        public const string Outside = "outside";
         public const string Overline = "overline";
+        public const string PaddingBox = "padding-box";
+        public const string Page = "page";
+        public const string Percent = "%";
         public const string Pre = "pre";
         public const string PreWrap = "pre-wrap";
         public const string PreLine = "pre-line";
         public const string Relative = "relative";
+        public const string Repeat = "repeat";
+        public const string Rem = "rem";
         public const string Right = "right";
         public const string Rtl = "rtl";
         public const string SansSerif = "sans-serif";
+        public const string Scroll = "scroll";
         public const string Serif = "serif";
         public const string Show = "show";
         public const string Small = "small";
@@ -104,6 +120,7 @@ namespace PeachPDF.Html.Core.Utils
         public const string Thin = "thin";
         public const string Thick = "thick";
         public const string Top = "top";
+        public const string Transparent = "transparent";
         public const string Underline = "underline";
         public const string UpperAlpha = "upper-alpha";
         public const string UpperLatin = "upper-latin";
@@ -120,6 +137,7 @@ namespace PeachPDF.Html.Core.Utils
         public const string Groove = "groove";
         public const string Ridge = "ridge";
         public const string Wavy = "wavy";
+        public const string PeachBaselineMiddle = "-peachpdf-baseline-middle"; // same as -webkit-baseline-middle
 
         /// <summary>
         /// Centimeters

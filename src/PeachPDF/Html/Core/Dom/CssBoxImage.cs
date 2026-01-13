@@ -10,12 +10,13 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using System;
-using System.Threading.Tasks;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core.Handlers;
+using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
+using System;
+using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core.Dom
 {
@@ -24,8 +25,6 @@ namespace PeachPDF.Html.Core.Dom
     /// </summary>
     internal sealed class CssBoxImage : CssBox
     {
-        #region Fields and Consts
-
         /// <summary>
         /// the image word of this image box
         /// </summary>
@@ -34,22 +33,14 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// handler used for image loading by source
         /// </summary>
-        private ImageLoadHandler _imageLoadHandler;
-
-        /// <summary>
-        /// is image load is finished, used to know if no image is found
-        /// </summary>
-        private bool _imageLoadingComplete;
-
-        #endregion
-
+        private ImageLoadHandler? _imageLoadHandler;
 
         /// <summary>
         /// Init.
         /// </summary>
         /// <param name="parent">the parent box of this box</param>
         /// <param name="tag">the html tag data of this box</param>
-        public CssBoxImage(CssBox parent, HtmlTag tag)
+        public CssBoxImage(CssBox? parent, HtmlTag tag)
             : base(parent, tag)
         {
             _imageWord = new CssRectImage(this);
@@ -59,7 +50,9 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Get the image of this image box.
         /// </summary>
-        public RImage Image => _imageWord.Image;
+        public RImage? Image => _imageWord.Image;
+
+        public string ImageSource => GetAttribute("src");
 
         /// <summary>
         /// Paints the fragment
@@ -70,25 +63,25 @@ namespace PeachPDF.Html.Core.Dom
             // load image if it is in visible rectangle
             if (_imageLoadHandler == null)
             {
-                _imageLoadHandler = new ImageLoadHandler(HtmlContainer);
-                await _imageLoadHandler.LoadImage(GetAttribute("src"), HtmlTag?.Attributes);
+                _imageLoadHandler = new ImageLoadHandler(HtmlContainer!);
+                await _imageLoadHandler.LoadImage(ImageSource);
                 OnLoadImageComplete(_imageLoadHandler.Image);
             }
 
             var rect = CommonUtils.GetFirstValueOrDefault(Rectangles);
-            RPoint offset = RPoint.Empty;
+            var offset = RPoint.Empty;
 
             if (!IsFixed)
-                offset = HtmlContainer.ScrollOffset;
+                offset = HtmlContainer!.ScrollOffset;
 
             rect.Offset(offset);
 
             var clipped = RenderUtils.ClipGraphicsByOverflow(g, this);
 
-            PaintBackground(g, rect, true, true);
+            PaintBackground(g, rect, true);
             BordersDrawHandler.DrawBoxBorders(g, this, rect, true, true);
 
-            RRect r = _imageWord.Rectangle;
+            var r = _imageWord.Rectangle;
             r.Offset(offset);
             r.Height -= ActualBorderTopWidth + ActualBorderBottomWidth + ActualPaddingTop + ActualPaddingBottom;
             r.Y += ActualBorderTopWidth + ActualPaddingTop;
@@ -100,21 +93,6 @@ namespace PeachPDF.Html.Core.Dom
                 if (r is { Width: > 0, Height: > 0 })
                 {
                     g.DrawImage(_imageWord.Image, r);
-                }
-            }
-            else if (_imageLoadingComplete)
-            {
-                if (_imageLoadingComplete && r is { Width: > 19, Height: > 19 })
-                {
-                    RenderUtils.DrawImageErrorIcon(g, HtmlContainer, r);
-                }
-            }
-            else
-            {
-                RenderUtils.DrawImageLoadingIcon(g, HtmlContainer, r);
-                if (r is { Width: > 19, Height: > 19 })
-                {
-                    g.DrawRectangle(g.GetPen(RColor.LightGray), r.X, r.Y, r.Width, r.Height);
                 }
             }
 
@@ -132,12 +110,20 @@ namespace PeachPDF.Html.Core.Dom
             {
                 if (_imageLoadHandler == null)
                 {
-                    _imageLoadHandler = new ImageLoadHandler(HtmlContainer);
+                    _imageLoadHandler = new ImageLoadHandler(HtmlContainer!);
 
-                    if (this.Content != null && this.Content != CssConstants.Normal)
-                        await _imageLoadHandler.LoadImage(this.Content, HtmlTag?.Attributes);
+                    if (Content != CssConstants.Normal)
+                    {
+                        var imageContent = CssValueParser.GetImagePropertyValue(Content);
+
+                        if (imageContent is not null)
+                        {
+                            await _imageLoadHandler.LoadImage(imageContent);
+                        }
+
+                    }
                     else
-                        await _imageLoadHandler.LoadImage(GetAttribute("src"), HtmlTag?.Attributes);
+                        await _imageLoadHandler.LoadImage(ImageSource);
 
                     OnLoadImageComplete(_imageLoadHandler.Image);
                 }
@@ -158,34 +144,14 @@ namespace PeachPDF.Html.Core.Dom
             base.Dispose();
         }
 
-
-        #region Private methods
-
-        /// <summary>
-        /// Set error image border on the image box.
-        /// </summary>
-        private void SetErrorBorder()
-        {
-            SetAllBorders(CssConstants.Solid, "2px", "#A0A0A0");
-            BorderRightColor = BorderBottomColor = "#E3E3E3";
-        }
-
         /// <summary>
         /// On image load process is complete with image or without update the image box.
         /// </summary>
         /// <param name="image">the image loaded or null if failed</param>
-        private void OnLoadImageComplete(RImage image)
+        private void OnLoadImageComplete(RImage? image)
         {
             _imageWord.Image = image;
-            _imageLoadingComplete = true;
             _wordsSizeMeasured = false;
-
-            if (_imageLoadingComplete && image == null)
-            {
-                SetErrorBorder();
-            }
         }
-
-        #endregion
     }
 }

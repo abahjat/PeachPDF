@@ -11,10 +11,10 @@
 // "The Art of War"
 
 using PeachPDF.Adapters;
-using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core;
 using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Utils;
+using PeachPDF.Network;
 using PeachPDF.PdfSharpCore.Drawing;
 using PeachPDF.Utilities;
 using System;
@@ -29,42 +29,18 @@ namespace PeachPDF
     /// <seealso cref="HtmlContainerInt"/>
     public sealed class HtmlContainer : IDisposable
     {
-        #region Fields and Consts
-
-        /// <summary>
-        /// The internal core html container
-        /// </summary>
-        private readonly HtmlContainerInt _htmlContainerInt;
-
-        #endregion
-
-
         /// <summary>
         /// Init.
         /// </summary>
         internal HtmlContainer(PdfSharpAdapter adapter)
         {
-            _htmlContainerInt = new HtmlContainerInt(adapter);
+            HtmlContainerInt = new HtmlContainerInt(adapter);
         }
 
         /// <summary>
         /// The internal core html container
         /// </summary>
-        internal HtmlContainerInt HtmlContainerInt => _htmlContainerInt;
-
-        /// <summary>
-        /// the parsed stylesheet data used for handling the html
-        /// </summary>
-        public CssData CssData => _htmlContainerInt.CssData;
-
-        /// <summary>
-        /// Gets or sets a value indicating if anti-aliasing should be avoided for geometry like backgrounds and borders (default - false).
-        /// </summary>
-        public bool AvoidGeometryAntialias
-        {
-            get => _htmlContainerInt.AvoidGeometryAntialias;
-            set => _htmlContainerInt.AvoidGeometryAntialias = value;
-        }
+        internal HtmlContainerInt HtmlContainerInt { get; }
 
         /// <summary>
         /// The scroll offset of the html.<br/>
@@ -76,8 +52,8 @@ namespace PeachPDF
         /// </example>
         public XPoint ScrollOffset
         {
-            get => Utils.Convert(_htmlContainerInt.ScrollOffset);
-            set => _htmlContainerInt.ScrollOffset = Utils.Convert(value);
+            get => Utils.Convert(HtmlContainerInt.ScrollOffset, PixelsPerPoint);
+            set => HtmlContainerInt.ScrollOffset = Utils.Convert(value, PixelsPerPoint);
         }
 
         /// <summary>
@@ -86,8 +62,8 @@ namespace PeachPDF
         /// </summary>
         public XPoint Location
         {
-            get => Utils.Convert(_htmlContainerInt.Location);
-            set => _htmlContainerInt.Location = Utils.Convert(value);
+            get => Utils.Convert(HtmlContainerInt.Location, PixelsPerPoint);
+            set => HtmlContainerInt.Location = Utils.Convert(value, PixelsPerPoint);
         }
 
         /// <summary>
@@ -99,8 +75,8 @@ namespace PeachPDF
         /// </summary>
         public XSize MaxSize
         {
-            get => Utils.Convert(_htmlContainerInt.MaxSize);
-            set => _htmlContainerInt.MaxSize = Utils.Convert(value);
+            get => Utils.Convert(HtmlContainerInt.MaxSize, PixelsPerPoint);
+            set => HtmlContainerInt.MaxSize = Utils.Convert(value, PixelsPerPoint);
         }
 
         /// <summary>
@@ -108,107 +84,78 @@ namespace PeachPDF
         /// </summary>
         public XSize ActualSize
         {
-            get => Utils.Convert(_htmlContainerInt.ActualSize);
-            internal set => _htmlContainerInt.ActualSize = Utils.Convert(value);
+            get => Utils.Convert(HtmlContainerInt.ActualSize, PixelsPerPoint);
+            internal set => HtmlContainerInt.ActualSize = Utils.Convert(value, PixelsPerPoint);
         }
 
-        public XSize PageSize {
-            get => new(_htmlContainerInt.PageSize.Width, _htmlContainerInt.PageSize.Height);
-            set => _htmlContainerInt.PageSize = new RSize(value.Width, value.Height);
+        public XSize PageSize
+        {
+            get => Utils.Convert(HtmlContainerInt.PageSize, PixelsPerPoint);
+            set => HtmlContainerInt.PageSize = Utils.Convert(value, PixelsPerPoint);
         }
 
         /// <summary>
         /// the top margin between the page start and the text
         /// </summary>
-        public int MarginTop
+        public double MarginTop
         {
-            get => _htmlContainerInt.MarginTop;
+            get => HtmlContainerInt.MarginTop / PixelsPerPoint;
             set
             {
                 if (value > -1)
-                    _htmlContainerInt.MarginTop = value;
+                    HtmlContainerInt.MarginTop = value * PixelsPerPoint;
             }
         }
 
         /// <summary>
         /// the bottom margin between the page end and the text
         /// </summary>
-        public int MarginBottom
+        public double MarginBottom
         {
-            get => _htmlContainerInt.MarginBottom;
+            get => HtmlContainerInt.MarginBottom / PixelsPerPoint;
             set
             {
                 if (value > -1)
-                    _htmlContainerInt.MarginBottom = value;
+                    HtmlContainerInt.MarginBottom = value * PixelsPerPoint;
             }
         }
 
         /// <summary>
         /// the left margin between the page start and the text
         /// </summary>
-        public int MarginLeft
+        public double MarginLeft
         {
-            get => _htmlContainerInt.MarginLeft;
+            get => HtmlContainerInt.MarginLeft / PixelsPerPoint;
             set
             {
                 if (value > -1)
-                    _htmlContainerInt.MarginLeft = value;
+                    HtmlContainerInt.MarginLeft = value * PixelsPerPoint;
             }
         }
 
         /// <summary>
         /// the right margin between the page end and the text
         /// </summary>
-        public int MarginRight
+        public double MarginRight
         {
-            get => _htmlContainerInt.MarginRight;
+            get => HtmlContainerInt.MarginRight / PixelsPerPoint;
             set
             {
                 if (value > -1)
-                    _htmlContainerInt.MarginRight = value;
+                    HtmlContainerInt.MarginRight = value * PixelsPerPoint;
             }
         }
 
-        /// <summary>
-        /// Set all 4 margins to the given value.
-        /// </summary>
-        /// <param name="value"></param>
-        public void SetMargins(int value)
-        {
-            if (value > -1)
-                _htmlContainerInt.SetMargins(value);
-        }
+        internal double PixelsPerPoint => ((PdfSharpAdapter)HtmlContainerInt.Adapter).PixelsPerPoint;
 
         /// <summary>
         /// Init with optional document and stylesheet.
         /// </summary>
         /// <param name="htmlSource">the html to init with, init empty if not given</param>
         /// <param name="baseCssData">optional: the stylesheet to init with, init default if not given</param>
-        public async Task SetHtml(string htmlSource, CssData baseCssData = null)
+        public async Task SetHtml(string htmlSource, CssData? baseCssData = null)
         {
-            await _htmlContainerInt.SetHtml(htmlSource, baseCssData);
-        }
-
-        /// <summary>
-        /// Get html from the current DOM tree with style if requested.
-        /// </summary>
-        /// <param name="styleGen">Optional: controls the way styles are generated when html is generated (default: <see cref="HtmlGenerationStyle.Inline"/>)</param>
-        /// <returns>generated html</returns>
-        public string GetHtml(HtmlGenerationStyle styleGen = HtmlGenerationStyle.Inline)
-        {
-            return _htmlContainerInt.GetHtml(styleGen);
-        }
-
-        /// <summary>
-        /// Get attribute value of element at the given x,y location by given key.<br/>
-        /// If more than one element exist with the attribute at the location the inner most is returned.
-        /// </summary>
-        /// <param name="location">the location to find the attribute at</param>
-        /// <param name="attribute">the attribute key to get value by</param>
-        /// <returns>found attribute value or null if not found</returns>
-        public string GetAttributeAt(XPoint location, string attribute)
-        {
-            return _htmlContainerInt.GetAttributeAt(Utils.Convert(location), attribute);
+            await HtmlContainerInt.SetHtml(htmlSource, baseCssData);
         }
 
         /// <summary>
@@ -224,28 +171,18 @@ namespace PeachPDF
 
             if (baseElement is not null)
             {
-                baseUrl = baseElement.HtmlTag.TryGetAttribute("href", "");
+                baseUrl = baseElement.HtmlTag?.TryGetAttribute("href", "");
             }
 
-            Uri baseUri = string.IsNullOrWhiteSpace(baseUrl) ? null : new Uri(baseUrl);
+            var baseUri = string.IsNullOrWhiteSpace(baseUrl) ? HtmlContainerInt.Adapter.BaseUri : new RUri(baseUrl);
 
             foreach (var link in HtmlContainerInt.GetLinks())
             {
-                var href = link.Href.StartsWith('#') || baseUri is null ? link.Href : new Uri(baseUri, link.Href).AbsoluteUri;
-                linkElements.Add(new LinkElementData<XRect>(link.Id, href, Utils.Convert(link.Rectangle)));
+                var href = link.Href.StartsWith('#') || baseUri is null ? link.Href : new RUri(baseUri, link.Href).AbsoluteUri;
+                linkElements.Add(new LinkElementData<XRect>(link.Id, href, Utils.Convert(link.Rectangle, PixelsPerPoint)));
             }
 
             return linkElements;
-        }
-
-        /// <summary>
-        /// Get css link href at the given x,y location.
-        /// </summary>
-        /// <param name="location">the location to find the link at</param>
-        /// <returns>css link href if exists or null</returns>
-        public string GetLinkAt(XPoint location)
-        {
-            return _htmlContainerInt.GetLinkAt(Utils.Convert(location));
         }
 
         /// <summary>
@@ -257,8 +194,8 @@ namespace PeachPDF
         /// <returns>the rectangle of the element or null if not found</returns>
         public XRect? GetElementRectangle(string elementId)
         {
-            var r = _htmlContainerInt.GetElementRectangle(elementId);
-            return r.HasValue ? Utils.Convert(r.Value) : (XRect?)null;
+            var r = HtmlContainerInt.GetElementRectangle(elementId);
+            return r.HasValue ? Utils.Convert(r.Value, PixelsPerPoint) : (XRect?)null;
         }
 
         /// <summary>
@@ -267,27 +204,27 @@ namespace PeachPDF
         /// <param name="g">Device context to draw</param>
         public async ValueTask PerformLayout(XGraphics g)
         {
-            ArgChecker.AssertArgNotNull(g, "g");
+            ArgumentNullException.ThrowIfNull(g);
 
-            using var ig = new GraphicsAdapter(_htmlContainerInt.Adapter, g);
-            await _htmlContainerInt.PerformLayout(ig);
+            using var ig = new GraphicsAdapter(HtmlContainerInt.Adapter, g, PixelsPerPoint);
+            await HtmlContainerInt.PerformLayout(ig);
         }
 
         /// <summary>
         /// Render the html using the given device.
         /// </summary>
         /// <param name="g">the device to use to render</param>
-        public void PerformPaint(XGraphics g)
+        public async ValueTask PerformPaint(XGraphics g)
         {
-            ArgChecker.AssertArgNotNull(g, "g");
+            ArgumentNullException.ThrowIfNull(g);
 
-            using var ig = new GraphicsAdapter(_htmlContainerInt.Adapter, g);
-            _htmlContainerInt.PerformPaint(ig);
+            using var ig = new GraphicsAdapter(HtmlContainerInt.Adapter, g, PixelsPerPoint);
+            await HtmlContainerInt.PerformPaint(ig);
         }
 
         public void Dispose()
         {
-            _htmlContainerInt.Dispose();
+            HtmlContainerInt.Dispose();
         }
     }
 }

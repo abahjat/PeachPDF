@@ -1,6 +1,7 @@
-using System;
-using System.Collections.Generic;
+using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Core.Utils;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core.Dom
 {
@@ -9,52 +10,38 @@ namespace PeachPDF.Html.Core.Dom
     /// </summary>
     internal sealed class CssSpacingBox : CssBox
     {
-        #region Fields and Consts
-
-        private readonly CssBox _extendedBox;
-
-        /// <summary>
-        /// the index of the row where box starts
-        /// </summary>
-        private readonly int _startRow;
-
-        /// <summary>
-        /// the index of the row where box ends
-        /// </summary>
-        private readonly int _endRow;
-
-        #endregion
-
-
         public CssSpacingBox(CssBox tableBox, ref CssBox extendedBox, int startRow)
             : base(tableBox, new HtmlTag("none", false, new Dictionary<string, string> { { "colspan", "1" } }))
         {
-            _extendedBox = extendedBox;
-            Display = CssConstants.None;
+            ExtendedBox = extendedBox;
+            Display = CssConstants.TableCell;
 
-            _startRow = startRow;
-            _endRow = startRow + Int32.Parse(extendedBox.GetAttribute("rowspan", "1")) - 1;
+            StartRow = startRow;
+            EndRow = startRow + int.Parse(extendedBox.GetAttribute("rowspan", "1")) - 1;
         }
 
-        public CssBox ExtendedBox
-        {
-            get { return _extendedBox; }
-        }
+        public CssBox ExtendedBox { get; }
 
         /// <summary>
         /// Gets the index of the row where box starts
         /// </summary>
-        public int StartRow
-        {
-            get { return _startRow; }
-        }
+        public int StartRow { get; }
 
         /// <summary>
         /// Gets the index of the row where box ends
         /// </summary>
-        public int EndRow
+        public int EndRow { get; }
+
+        public override bool BreakPage()
         {
-            get { return _endRow; }
+            return ExtendedBox.BreakPage();
+        }
+
+        protected override async ValueTask PaintImp(RGraphics g)
+        {
+            ExtendedBox.ResetPaint();
+
+            await ExtendedBox.Paint(g);
         }
     }
 }

@@ -1,7 +1,7 @@
 // "Therefore those skilled at the unorthodox
 // are infinite as heaven and earth,
 // inexhaustible as the great rivers.
-// When they come to an end,
+// When they come to anend,
 // they begin again,
 // like the days and months;
 // they die and are reborn,
@@ -10,14 +10,15 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core.Dom
 {
@@ -26,47 +27,43 @@ namespace PeachPDF.Html.Core.Dom
     /// </summary>
     internal sealed class CssLayoutEngineTable
     {
-        #region Fields and Consts
-
         /// <summary>
         /// the main box of the table
         /// </summary>
         private readonly CssBox _tableBox;
 
-        /// <summary>
-        /// 
-        /// </summary>
-        private CssBox _caption;
+        private CssBox? _headerBox;
 
-        private CssBox _headerBox;
-
-        private CssBox _footerBox;
+        private CssBox? _footerBox;
 
         /// <summary>
         /// collection of all rows boxes
         /// </summary>
-        private readonly List<CssBox> _bodyrows = new List<CssBox>();
+        private readonly List<CssBox> _bodyRows = [];
 
         /// <summary>
         /// collection of all columns boxes
         /// </summary>
-        private readonly List<CssBox> _columns = new List<CssBox>();
+        private readonly List<CssBox> _columns = [];
 
         /// <summary>
         /// 
         /// </summary>
-        private readonly List<CssBox> _allRows = new List<CssBox>();
+        private readonly List<CssBox> _allRows = [];
 
         private int _columnCount;
 
         private bool _widthSpecified;
 
-        private double[] _columnWidths;
+        private double[]? _columnWidths;
 
-        private double[] _columnMinWidths;
+        private double[]? _columnMinWidths;
 
-        #endregion
-
+        // Header/Footer repetition fields
+        private double _headerHeight;
+        private double _footerHeight;
+        private bool _shouldRepeatHeaders => _headerBox != null && _headerBox.Display == CssConstants.TableHeaderGroup;
+        private bool _shouldRepeatFooters => _footerBox != null && _footerBox.Display == CssConstants.TableFooterGroup;
 
         /// <summary>
         /// Init.
@@ -85,27 +82,31 @@ namespace PeachPDF.Html.Core.Dom
         /// <returns>the calculated spacing</returns>
         public static double GetTableSpacing(CssBox tableBox)
         {
-            int count = 0;
-            int columns = 0;
+            var count = 0;
+            var columns = 0;
+
             foreach (var box in tableBox.Boxes)
             {
-                if (box.Display == CssConstants.TableColumn)
+                switch (box.Display)
                 {
-                    columns += GetSpan(box);
-                }
-                else if (box.Display == CssConstants.TableRowGroup)
-                {
-                    foreach (CssBox cr in tableBox.Boxes)
-                    {
+                    case CssConstants.TableColumn:
+                        columns += GetSpan(box);
+                        break;
+                    case CssConstants.TableRowGroup:
+                        {
+                            foreach (var cr in tableBox.Boxes)
+                            {
+                                count++;
+                                if (cr.Display == CssConstants.TableRow)
+                                    columns = Math.Max(columns, cr.Boxes.Count);
+                            }
+
+                            break;
+                        }
+                    case CssConstants.TableRow:
                         count++;
-                        if (cr.Display == CssConstants.TableRow)
-                            columns = Math.Max(columns, cr.Boxes.Count);
-                    }
-                }
-                else if (box.Display == CssConstants.TableRow)
-                {
-                    count++;
-                    columns = Math.Max(columns, box.Boxes.Count);
+                        columns = Math.Max(columns, box.Boxes.Count);
+                        break;
                 }
 
                 // limit the amount of rows to process for performance
@@ -124,8 +125,8 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="tableBox"> </param>
         public static async ValueTask PerformLayout(RGraphics g, CssBox tableBox)
         {
-            ArgChecker.AssertArgNotNull(g, "g");
-            ArgChecker.AssertArgNotNull(tableBox, "tableBox");
+            ArgumentNullException.ThrowIfNull(g);
+            ArgumentNullException.ThrowIfNull(tableBox);
 
             try
             {
@@ -134,7 +135,7 @@ namespace PeachPDF.Html.Core.Dom
             }
             catch (Exception ex)
             {
-                tableBox.HtmlContainer.ReportError(HtmlRenderErrorType.Layout, "Failed table layout", ex);
+                tableBox.HtmlContainer?.ReportError(HtmlRenderErrorType.Layout, "Failed table layout", ex);
             }
         }
 
@@ -161,10 +162,15 @@ namespace PeachPDF.Html.Core.Dom
             DetermineMissingColumnWidths(availCellSpace);
 
             // Check for minimum sizes (increment widths if necessary)
-            EnforceMinimumSize();
+            EnforceMaximumSize();
 
             // While table width is larger than it should, and width is reducible
-            EnforceMaximumSize();
+            EnforceMinimumSize();
+
+            _tableBox.Location = _tableBox.Location with
+            {
+                X = _tableBox.Location.X + CssLayoutEngine.GetActualMarginLeft(_tableBox, GetWidthSum())
+            };
 
             // Ensure there's no padding
             _tableBox.PaddingLeft = _tableBox.PaddingTop = _tableBox.PaddingRight = _tableBox.PaddingBottom = "0";
@@ -183,25 +189,24 @@ namespace PeachPDF.Html.Core.Dom
                 switch (box.Display)
                 {
                     case CssConstants.TableCaption:
-                        _caption = box;
                         break;
                     case CssConstants.TableRow:
-                        _bodyrows.Add(box);
+                        _bodyRows.Add(box);
                         break;
                     case CssConstants.TableRowGroup:
                         foreach (CssBox childBox in box.Boxes)
                             if (childBox.Display == CssConstants.TableRow)
-                                _bodyrows.Add(childBox);
+                                _bodyRows.Add(childBox);
                         break;
                     case CssConstants.TableHeaderGroup:
                         if (_headerBox != null)
-                            _bodyrows.Add(box);
+                            _bodyRows.Add(box);
                         else
                             _headerBox = box;
                         break;
                     case CssConstants.TableFooterGroup:
                         if (_footerBox != null)
-                            _bodyrows.Add(box);
+                            _bodyRows.Add(box);
                         else
                             _footerBox = box;
                         break;
@@ -236,7 +241,7 @@ namespace PeachPDF.Html.Core.Dom
             if (_headerBox != null)
                 _allRows.AddRange(_headerBox.Boxes);
 
-            _allRows.AddRange(_bodyrows);
+            _allRows.AddRange(_bodyRows);
 
             if (_footerBox != null)
                 _allRows.AddRange(_footerBox.Boxes);
@@ -247,42 +252,40 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         private void InsertEmptyBoxes()
         {
-            if (!_tableBox._tableFixed)
+            if (_tableBox._tableFixed) return;
+
+            var currentRow = 0;
+
+            foreach (var row in _bodyRows)
             {
-                int currow = 0;
-                List<CssBox> rows = _bodyrows;
-
-                foreach (CssBox row in rows)
+                for (var k = 0; k < row.Boxes.Count; k++)
                 {
-                    for (int k = 0; k < row.Boxes.Count; k++)
-                    {
-                        CssBox cell = row.Boxes[k];
-                        int rowspan = GetRowSpan(cell);
-                        int realcol = GetCellRealColumnIndex(row, cell); //Real column of the cell
+                    var cell = row.Boxes[k];
+                    var rowSpan = GetRowSpan(cell);
+                    var realColumnIndex = GetCellRealColumnIndex(row, cell); //Real column of the cell
 
-                        for (int i = currow + 1; i < currow + rowspan; i++)
+                    for (var i = currentRow + 1; i < currentRow + rowSpan; i++)
+                    {
+                        if (_bodyRows.Count <= i) continue;
+
+                        var columnCount = 0;
+                        for (var j = 0; j < _bodyRows[i].Boxes.Count; j++)
                         {
-                            if (rows.Count > i)
+                            if (columnCount == realColumnIndex)
                             {
-                                int colcount = 0;
-                                for (int j = 0; j < rows[i].Boxes.Count; j++)
-                                {
-                                    if (colcount == realcol)
-                                    {
-                                        rows[i].Boxes.Insert(colcount, new CssSpacingBox(_tableBox, ref cell, currow));
-                                        break;
-                                    }
-                                    colcount++;
-                                    realcol -= GetColSpan(rows[i].Boxes[j]) - 1;
-                                }
+                                _bodyRows[i].Boxes.Insert(columnCount, new CssSpacingBox(_tableBox, ref cell, currentRow));
+                                break;
                             }
+                            columnCount++;
+                            realColumnIndex -= GetColSpan(_bodyRows[i].Boxes[j]) - 1;
                         }
                     }
-                    currow++;
                 }
 
-                _tableBox._tableFixed = true;
+                currentRow++;
             }
+
+            _tableBox._tableFixed = true;
         }
 
         /// <summary>
@@ -298,60 +301,62 @@ namespace PeachPDF.Html.Core.Dom
             }
             else
             {
-                foreach (CssBox b in _allRows)
-                    _columnCount = Math.Max(_columnCount, b.Boxes.Count);
+                foreach (var b in _allRows)
+                {
+                    var rowColumnCount = b.Boxes.Sum(GetColSpan);
+                    _columnCount = Math.Max(_columnCount, rowColumnCount);
+                }
+
             }
 
             //Initialize column widths array with NaNs
             _columnWidths = new double[_columnCount];
-            for (int i = 0; i < _columnWidths.Length; i++)
+            for (var i = 0; i < _columnWidths.Length; i++)
                 _columnWidths[i] = double.NaN;
 
-            double availCellSpace = GetAvailableCellWidth();
+            var availCellSpace = GetAvailableCellWidth();
 
             if (_columns.Count > 0)
             {
                 // Fill ColumnWidths array by scanning column widths
-                for (int i = 0; i < _columns.Count; i++)
+                for (var i = 0; i < _columns.Count; i++)
                 {
-                    CssLength len = new CssLength(_columns[i].Width); //Get specified width
+                    CssLength len = new(_columns[i].Width); //Get specified width
 
-                    if (len.Number > 0) //If some width specified
+                    if (!(len.Number > 0)) continue; //If some width specified
+
+                    if (len.IsPercentage) //Get width as a percentage
                     {
-                        if (len.IsPercentage) //Get width as a percentage
-                        {
-                            _columnWidths[i] = CssValueParser.ParseNumber(_columns[i].Width, availCellSpace);
-                        }
-                        else if (len.Unit == CssUnit.Pixels || len.Unit == CssUnit.None)
-                        {
-                            _columnWidths[i] = len.Number; //Get width as an absolute-pixel value
-                        }
+                        _columnWidths[i] = CssValueParser.ParseNumber(_columns[i].Width, availCellSpace);
+                    }
+                    else if (len.Unit is CssUnit.Pixels or CssUnit.None)
+                    {
+                        _columnWidths[i] = len.Number; //Get width as an absolute-pixel value
                     }
                 }
             }
             else
             {
                 // Fill ColumnWidths array by scanning width in table-cell definitions
-                foreach (CssBox row in _allRows)
+                foreach (var row in _allRows)
                 {
                     //Check for column width in table-cell definitions
-                    for (int i = 0; i < _columnCount; i++)
+                    for (var i = 0; i < _columnCount; i++)
                     {
-                        if (i < 20 || double.IsNaN(_columnWidths[i])) // limit column width check
+                        if (i >= 20 && !double.IsNaN(_columnWidths[i])) continue; // limit column width check
+
+                        if (i >= row.Boxes.Count || row.Boxes[i].Display != CssConstants.TableCell) continue;
+
+                        var len = CssValueParser.ParseLength(row.Boxes[i].Width, availCellSpace, row.Boxes[i]);
+
+                        if (!(len > 0)) continue; //If some width specified
+
+                        var colspan = GetColSpan(row.Boxes[i]);
+                        len /= Convert.ToSingle(colspan);
+
+                        for (var j = i; j < i + colspan; j++)
                         {
-                            if (i < row.Boxes.Count && row.Boxes[i].Display == CssConstants.TableCell)
-                            {
-                                double len = CssValueParser.ParseLength(row.Boxes[i].Width, availCellSpace, row.Boxes[i]);
-                                if (len > 0) //If some width specified
-                                {
-                                    int colspan = GetColSpan(row.Boxes[i]);
-                                    len /= Convert.ToSingle(colspan);
-                                    for (int j = i; j < i + colspan; j++)
-                                    {
-                                        _columnWidths[j] = double.IsNaN(_columnWidths[j]) ? len : Math.Max(_columnWidths[j], len);
-                                    }
-                                }
-                            }
+                            _columnWidths[j] = double.IsNaN(_columnWidths[j]) ? len : Math.Max(_columnWidths[j], len);
                         }
                     }
                 }
@@ -365,35 +370,35 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="availCellSpace"></param>
         private void DetermineMissingColumnWidths(double availCellSpace)
         {
-            double occupedSpace = 0f;
+            double occupiedSpace = 0f;
+
             if (_widthSpecified) //If a width was specified,
             {
                 //Assign NaNs equally with space left after gathering not-NaNs
-                int numOfNans = 0;
+                var numOfNans = 0;
 
                 //Calculate number of NaNs and occupied space
-                foreach (double colWidth in _columnWidths)
+                foreach (var colWidth in _columnWidths!)
                 {
                     if (double.IsNaN(colWidth))
                         numOfNans++;
                     else
-                        occupedSpace += colWidth;
+                        occupiedSpace += colWidth;
                 }
                 var orgNumOfNans = numOfNans;
 
-                double[] orgColWidths = null;
+                double[]? orgColWidths = null;
                 if (numOfNans < _columnWidths.Length)
                 {
                     orgColWidths = new double[_columnWidths.Length];
-                    for (int i = 0; i < _columnWidths.Length; i++)
+                    for (var i = 0; i < _columnWidths.Length; i++)
                         orgColWidths[i] = _columnWidths[i];
                 }
 
                 if (numOfNans > 0)
                 {
                     // Determine the max width for each column
-                    double[] minFullWidths, maxFullWidths;
-                    GetColumnsMinMaxWidthByContent(true, out minFullWidths, out maxFullWidths);
+                    GetColumnsMinMaxWidthByContent(true, out _, out var maxFullWidths);
 
                     // set the columns that can fulfill by the max width in a loop because it changes the nanWidth
                     int oldNumOfNans;
@@ -401,24 +406,23 @@ namespace PeachPDF.Html.Core.Dom
                     {
                         oldNumOfNans = numOfNans;
 
-                        for (int i = 0; i < _columnWidths.Length; i++)
+                        for (var i = 0; i < _columnWidths.Length; i++)
                         {
-                            var nanWidth = (availCellSpace - occupedSpace) / numOfNans;
-                            if (double.IsNaN(_columnWidths[i]) && nanWidth > maxFullWidths[i])
-                            {
-                                _columnWidths[i] = maxFullWidths[i];
-                                numOfNans--;
-                                occupedSpace += maxFullWidths[i];
-                            }
+                            var nanWidth = (availCellSpace - occupiedSpace) / numOfNans;
+                            if (!double.IsNaN(_columnWidths[i]) || !(nanWidth > maxFullWidths[i])) continue;
+
+                            _columnWidths[i] = maxFullWidths[i];
+                            numOfNans--;
+                            occupiedSpace += maxFullWidths[i];
                         }
                     } while (oldNumOfNans != numOfNans);
 
                     if (numOfNans > 0)
                     {
                         // Determine width that will be assigned to un assigned widths
-                        double nanWidth = (availCellSpace - occupedSpace) / numOfNans;
+                        var nanWidth = (availCellSpace - occupiedSpace) / numOfNans;
 
-                        for (int i = 0; i < _columnWidths.Length; i++)
+                        for (var i = 0; i < _columnWidths.Length; i++)
                         {
                             if (double.IsNaN(_columnWidths[i]))
                                 _columnWidths[i] = nanWidth;
@@ -426,52 +430,50 @@ namespace PeachPDF.Html.Core.Dom
                     }
                 }
 
-                if (numOfNans == 0 && occupedSpace < availCellSpace)
+                if (numOfNans != 0 || !(occupiedSpace < availCellSpace)) return;
                 {
                     if (orgNumOfNans > 0)
                     {
                         // spread extra width between all non width specified columns
-                        double extWidth = (availCellSpace - occupedSpace) / orgNumOfNans;
-                        for (int i = 0; i < _columnWidths.Length; i++)
+                        var extWidth = (availCellSpace - occupiedSpace) / orgNumOfNans;
+                        for (var i = 0; i < _columnWidths.Length; i++)
                             if (orgColWidths == null || double.IsNaN(orgColWidths[i]))
                                 _columnWidths[i] += extWidth;
                     }
                     else
                     {
                         // spread extra width between all columns with respect to relative sizes
-                        for (int i = 0; i < _columnWidths.Length; i++)
-                            _columnWidths[i] += (availCellSpace - occupedSpace) * (_columnWidths[i] / occupedSpace);
+                        for (var i = 0; i < _columnWidths.Length; i++)
+                            _columnWidths[i] += (availCellSpace - occupiedSpace) * (_columnWidths[i] / occupiedSpace);
                     }
                 }
             }
             else
             {
                 //Get the minimum and maximum full length of NaN boxes
-                double[] minFullWidths, maxFullWidths;
-                GetColumnsMinMaxWidthByContent(true, out minFullWidths, out maxFullWidths);
+                GetColumnsMinMaxWidthByContent(true, out var minFullWidths, out var maxFullWidths);
 
-                for (int i = 0; i < _columnWidths.Length; i++)
+                for (var i = 0; i < _columnWidths!.Length; i++)
                 {
                     if (double.IsNaN(_columnWidths[i]))
                         _columnWidths[i] = minFullWidths[i];
-                    occupedSpace += _columnWidths[i];
+                    occupiedSpace += _columnWidths[i];
                 }
 
                 // spread extra width between all columns
-                for (int i = 0; i < _columnWidths.Length; i++)
+                for (var i = 0; i < _columnWidths.Length; i++)
                 {
-                    if (maxFullWidths[i] > _columnWidths[i])
-                    {
-                        var temp = _columnWidths[i];
-                        _columnWidths[i] = Math.Min(_columnWidths[i] + (availCellSpace - occupedSpace) / Convert.ToSingle(_columnWidths.Length - i), maxFullWidths[i]);
-                        occupedSpace = occupedSpace + _columnWidths[i] - temp;
-                    }
+                    if (!(maxFullWidths[i] > _columnWidths[i])) continue;
+
+                    var temp = _columnWidths[i];
+                    _columnWidths[i] = Math.Min(_columnWidths[i] + (availCellSpace - occupiedSpace) / Convert.ToSingle(_columnWidths.Length - i), maxFullWidths[i]);
+                    occupiedSpace = occupiedSpace + _columnWidths[i] - temp;
                 }
             }
         }
 
         /// <summary>
-        /// While table width is larger than it should, and width is reductable.<br/>
+        /// While table width is larger than it should, and width is reducible.<br/>
         /// If table max width is limited by we need to lower the columns width even if it will result in clipping<br/>
         /// </summary>
         private void EnforceMaximumSize()
@@ -483,7 +485,7 @@ namespace PeachPDF.Html.Core.Dom
                 while (!CanReduceWidth(curCol))
                     curCol++;
 
-                _columnWidths[curCol] -= 1f;
+                _columnWidths![curCol] -= 1f;
 
                 curCol++;
 
@@ -493,83 +495,79 @@ namespace PeachPDF.Html.Core.Dom
 
             // if table max width is limited by we need to lower the columns width even if it will result in clipping
             var maxWidth = GetMaxTableWidth();
-            if (maxWidth < 90999)
+            if (!(maxWidth < 90999)) return;
+
+            widthSum = GetWidthSum();
+            if (!(maxWidth < widthSum)) return;
+
+            //Get the minimum and maximum full length of NaN boxes
+            GetColumnsMinMaxWidthByContent(false, out var minFullWidths, out var maxFullWidths);
+
+            // lower all the columns to the minimum
+            for (var i = 0; i < _columnWidths!.Length; i++)
+                _columnWidths[i] = minFullWidths[i];
+
+            // either min for all column is not enought and we need to lower it more resulting in clipping
+            // or we now have extra space so we can give it to columns than need it
+            widthSum = GetWidthSum();
+            if (maxWidth < widthSum)
             {
-                widthSum = GetWidthSum();
-                if (maxWidth < widthSum)
+                // lower the width of columns starting from the largest one until the max width is satisfied
+                for (var a = 0; a < 15 && maxWidth < widthSum - 0.1; a++) // limit iteration so bug won't create infinite loop
                 {
-                    //Get the minimum and maximum full length of NaN boxes
-                    double[] minFullWidths, maxFullWidths;
-                    GetColumnsMinMaxWidthByContent(false, out minFullWidths, out maxFullWidths);
+                    var nonMaxedColumns = 0;
+                    double largeWidth = 0f, secLargeWidth = 0f;
+                    foreach (var columnWidth in _columnWidths)
+                    {
+                        if (columnWidth > largeWidth + 0.1)
+                        {
+                            secLargeWidth = largeWidth;
+                            largeWidth = columnWidth;
+                            nonMaxedColumns = 1;
+                        }
+                        else if (columnWidth > largeWidth - 0.1)
+                        {
+                            nonMaxedColumns++;
+                        }
+                    }
 
-                    // lower all the columns to the minimum
-                    for (int i = 0; i < _columnWidths.Length; i++)
-                        _columnWidths[i] = minFullWidths[i];
+                    var decrease = secLargeWidth > 0 ? largeWidth - secLargeWidth : (widthSum - maxWidth) / _columnWidths.Length;
+                    if (decrease * nonMaxedColumns > widthSum - maxWidth)
+                        decrease = (widthSum - maxWidth) / nonMaxedColumns;
+                    for (var i = 0; i < _columnWidths.Length; i++)
+                        if (_columnWidths[i] > largeWidth - 0.1)
+                            _columnWidths[i] -= decrease;
 
-                    // either min for all column is not enought and we need to lower it more resulting in clipping
-                    // or we now have extra space so we can give it to columns than need it
                     widthSum = GetWidthSum();
-                    if (maxWidth < widthSum)
+                }
+            }
+            else
+            {
+                // spread extra width to columns that didn't reached max width where trying to spread it between all columns
+                for (var a = 0; a < 15 && maxWidth > widthSum + 0.1; a++) // limit iteration so bug won't create infinite loop
+                {
+                    var nonMaxedColumns = 0;
+                    for (var i = 0; i < _columnWidths.Length; i++)
+                        if (_columnWidths[i] + 1 < maxFullWidths[i])
+                            nonMaxedColumns++;
+                    if (nonMaxedColumns == 0)
+                        nonMaxedColumns = _columnWidths.Length;
+
+                    var hit = false;
+                    var minIncrement = (maxWidth - widthSum) / nonMaxedColumns;
+                    for (var i = 0; i < _columnWidths.Length; i++)
                     {
-                        // lower the width of columns starting from the largest one until the max width is satisfied
-                        for (int a = 0; a < 15 && maxWidth < widthSum - 0.1; a++) // limit iteration so bug won't create infinite loop
-                        {
-                            int nonMaxedColumns = 0;
-                            double largeWidth = 0f, secLargeWidth = 0f;
-                            for (int i = 0; i < _columnWidths.Length; i++)
-                            {
-                                if (_columnWidths[i] > largeWidth + 0.1)
-                                {
-                                    secLargeWidth = largeWidth;
-                                    largeWidth = _columnWidths[i];
-                                    nonMaxedColumns = 1;
-                                }
-                                else if (_columnWidths[i] > largeWidth - 0.1)
-                                {
-                                    nonMaxedColumns++;
-                                }
-                            }
+                        if (!(_columnWidths[i] + 0.1 < maxFullWidths[i])) continue;
 
-                            double decrease = secLargeWidth > 0 ? largeWidth - secLargeWidth : (widthSum - maxWidth) / _columnWidths.Length;
-                            if (decrease * nonMaxedColumns > widthSum - maxWidth)
-                                decrease = (widthSum - maxWidth) / nonMaxedColumns;
-                            for (int i = 0; i < _columnWidths.Length; i++)
-                                if (_columnWidths[i] > largeWidth - 0.1)
-                                    _columnWidths[i] -= decrease;
-
-                            widthSum = GetWidthSum();
-                        }
+                        minIncrement = Math.Min(minIncrement, maxFullWidths[i] - _columnWidths[i]);
+                        hit = true;
                     }
-                    else
-                    {
-                        // spread extra width to columns that didn't reached max width where trying to spread it between all columns
-                        for (int a = 0; a < 15 && maxWidth > widthSum + 0.1; a++) // limit iteration so bug won't create infinite loop
-                        {
-                            int nonMaxedColumns = 0;
-                            for (int i = 0; i < _columnWidths.Length; i++)
-                                if (_columnWidths[i] + 1 < maxFullWidths[i])
-                                    nonMaxedColumns++;
-                            if (nonMaxedColumns == 0)
-                                nonMaxedColumns = _columnWidths.Length;
 
-                            bool hit = false;
-                            double minIncrement = (maxWidth - widthSum) / nonMaxedColumns;
-                            for (int i = 0; i < _columnWidths.Length; i++)
-                            {
-                                if (_columnWidths[i] + 0.1 < maxFullWidths[i])
-                                {
-                                    minIncrement = Math.Min(minIncrement, maxFullWidths[i] - _columnWidths[i]);
-                                    hit = true;
-                                }
-                            }
+                    for (var i = 0; i < _columnWidths.Length; i++)
+                        if (!hit || _columnWidths[i] + 1 < maxFullWidths[i])
+                            _columnWidths[i] += minIncrement;
 
-                            for (int i = 0; i < _columnWidths.Length; i++)
-                                if (!hit || _columnWidths[i] + 1 < maxFullWidths[i])
-                                    _columnWidths[i] += minIncrement;
-
-                            widthSum = GetWidthSum();
-                        }
-                    }
+                    widthSum = GetWidthSum();
                 }
             }
         }
@@ -579,26 +577,79 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         private void EnforceMinimumSize()
         {
-            foreach (CssBox row in _allRows)
+            //Get the minimum length
+            GetColumnsMinMaxWidthByContent(false, out var minFullWidths, out _);
+
+            for (var i = 0; i < _columnWidths!.Length; i++)
             {
-                foreach (CssBox cell in row.Boxes)
+                _columnWidths[i] = Math.Max(_columnWidths[i], minFullWidths[i]);
+            }
+
+            foreach (var row in _allRows)
+            {
+                foreach (var cell in row.Boxes)
                 {
-                    int colspan = GetColSpan(cell);
-                    int col = GetCellRealColumnIndex(row, cell);
-                    int affectcol = col + colspan - 1;
+                    var colspan = GetColSpan(cell);
+                    var col = GetCellRealColumnIndex(row, cell);
+                    var affectColumn = col + colspan - 1;
 
-                    if (_columnWidths.Length > col && _columnWidths[col] < GetColumnMinWidths()[col])
+                    if (_columnWidths!.Length <= col || !(_columnWidths[col] < GetColumnMinWidths()[col])) continue;
+                    var diff = GetColumnMinWidths()[col] - _columnWidths[col];
+                    _columnWidths[affectColumn] = GetColumnMinWidths()[affectColumn];
+
+                    if (col < _columnWidths.Length - 1)
                     {
-                        double diff = GetColumnMinWidths()[col] - _columnWidths[col];
-                        _columnWidths[affectcol] = GetColumnMinWidths()[affectcol];
-
-                        if (col < _columnWidths.Length - 1)
-                        {
-                            _columnWidths[col + 1] -= diff;
-                        }
+                        _columnWidths[col + 1] -= diff;
                     }
+
                 }
             }
+        }
+
+        /// <summary>
+        /// Remove header and footer from document tree for proxy-based repetition
+        /// </summary>
+        private void RemoveHeaderFooterFromTree()
+        {
+            if (_headerBox != null)
+            {
+                _tableBox.Boxes.Remove(_headerBox);
+                _headerBox.ParentBox = null;
+            }
+
+            if (_footerBox != null)
+            {
+                _tableBox.Boxes.Remove(_footerBox);
+                _footerBox.ParentBox = null;
+            }
+        }
+
+        /// <summary>
+        /// Create a proxy box for the header at the specified Y position
+        /// </summary>
+        private CssProxyBox? CreateHeaderProxy(double yPosition)
+        {
+          if (_headerBox == null)
+         return null;
+
+          var proxy = new CssProxyBox(_tableBox, _headerBox);
+            var startX = Math.Max(_tableBox.ClientLeft + GetHorizontalSpacing(), 0);
+        proxy.Location = new RPoint(startX, yPosition);
+   return proxy;
+   }
+
+        /// <summary>
+      /// Create a proxy box for the footer at the specified Y position
+/// </summary>
+        private CssProxyBox? CreateFooterProxy(double yPosition)
+   {
+  if (_footerBox == null)
+         return null;
+
+     var proxy = new CssProxyBox(_tableBox, _footerBox);
+            var startX = Math.Max(_tableBox.ClientLeft + GetHorizontalSpacing(), 0);
+     proxy.Location = new RPoint(startX, yPosition);
+      return proxy;
         }
 
         /// <summary>
@@ -607,114 +658,264 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="g"></param>
         private async ValueTask LayoutCells(RGraphics g)
         {
-            double startx = Math.Max(_tableBox.ClientLeft + GetHorizontalSpacing(), 0);
-            double starty = Math.Max(_tableBox.ClientTop + GetVerticalSpacing(), 0);
-            double cury = starty;
-            double maxRight = startx;
-            double maxBottom = 0f;
-            int currentrow = 0;
+       var startX = Math.Max(_tableBox.ClientLeft + GetHorizontalSpacing(), 0);
+            var startY = Math.Max(_tableBox.ClientTop + GetVerticalSpacing(), 0);
+       var currentY = startY;
+     var maxRight = startX;
+            var maxBottom = 0d;
 
-            // change start X by if the table should align to center or right
-            if (_tableBox.TextAlign == CssConstants.Center || _tableBox.TextAlign == CssConstants.Right)
+        var pageHeight = _tableBox.HtmlContainer?.PageSize.Height ?? double.MaxValue;
+       var marginTop = _tableBox.HtmlContainer?.MarginTop ?? 0;
+            var marginBottom = _tableBox.HtmlContainer?.MarginBottom ?? 0;
+
+#if DEBUG
+      System.Console.WriteLine($"CssLayoutEngineTable.LayoutCells: pageHeight={pageHeight}, marginTop={marginTop}");
+            System.Console.WriteLine($"  _headerBox={(_headerBox == null ? "NULL" : $"Display={_headerBox.Display}")}");
+ System.Console.WriteLine($"  _footerBox={(_footerBox == null ? "NULL" : $"Display={_footerBox.Display}")}");
+     System.Console.WriteLine($"  _shouldRepeatHeaders={_shouldRepeatHeaders}");
+            System.Console.WriteLine($"  _shouldRepeatFooters={_shouldRepeatFooters}");
+            System.Console.WriteLine($"  _bodyRows.Count={_bodyRows.Count}");
+#endif
+
+            // Step 1: Remove header/footer from document tree
+     RemoveHeaderFooterFromTree();
+
+            // Step 2: Layout header rows ONCE to calculate height
+     if (_shouldRepeatHeaders && _headerBox != null)
+ {
+  // Layout header rows directly using table layout logic
+            var headerRowsLayoutY = currentY;
+        foreach (var row in _headerBox.Boxes)
+  {
+      if (row.Display != CssConstants.TableRow)
+  continue;
+
+     var (newMaxRight, newMaxBottom) = await LayoutBodyRow(g, row, startX, headerRowsLayoutY, -1, new Dictionary<int, List<CssBox>>(), maxRight, headerRowsLayoutY);
+    maxRight = newMaxRight;
+ headerRowsLayoutY = newMaxBottom + GetVerticalSpacing();
+    }
+
+    // Set header box dimensions
+          _headerBox.Location = new RPoint(startX, currentY);
+  _headerBox.ActualRight = maxRight;
+    _headerBox.ActualBottom = headerRowsLayoutY - GetVerticalSpacing();
+             _headerHeight = _headerBox.ActualBottom - _headerBox.Location.Y;
+
+#if DEBUG
+      System.Console.WriteLine($"  Header laid out: Height={_headerHeight}, ActualBottom={_headerBox.ActualBottom}");
+#endif
+
+           // Now create proxy that references the already-laid-out header
+    var headerProxy = CreateHeaderProxy(currentY);
+   if (headerProxy != null)
+      {
+   _tableBox.Boxes.Add(headerProxy);  // Add at end instead of inserting at index
+   await headerProxy.PerformLayout(g);
+
+        currentY += _headerHeight + GetVerticalSpacing();
+   maxBottom = currentY;
+        }
+      }
+
+    // Step 3: Layout footer rows once to get dimensions (if needed)
+   if (_shouldRepeatFooters && _footerBox != null)
+     {
+ // Layout footer rows directly
+    var footerRowsLayoutY = 0d;
+     foreach (var row in _footerBox.Boxes)
+         {
+   if (row.Display != CssConstants.TableRow)
+       continue;
+
+           var (newMaxRight, newMaxBottom) = await LayoutBodyRow(g, row, startX, footerRowsLayoutY, -1, new Dictionary<int, List<CssBox>>(), maxRight, footerRowsLayoutY);
+     footerRowsLayoutY = newMaxBottom + GetVerticalSpacing();
+       }
+
+        _footerBox.Location = new RPoint(startX, 0);
+    _footerBox.ActualBottom = footerRowsLayoutY - GetVerticalSpacing();
+    _footerHeight = _footerBox.ActualBottom - _footerBox.Location.Y;
+  }
+
+   // Step 4: Layout body rows with page break detection
+       var currentPageNumber = 0;
+            Dictionary<int, List<CssBox>> rowSpannedBoxes = new();
+
+            for (var i = 0; i < _bodyRows.Count; i++)
             {
-                double maxRightCalc = GetWidthSum();
-                startx = _tableBox.TextAlign == CssConstants.Right
-                    ? GetAvailableTableWidth() - maxRightCalc
-                    : startx + (GetAvailableTableWidth() - maxRightCalc) / 2;
+          var row = _bodyRows[i];
+       var estimatedRowHeight = EstimateRowHeight(row);
+     var availableHeight = pageHeight - _footerHeight - marginBottom;
 
-                _tableBox.Location = new RPoint(startx - _tableBox.ActualBorderLeftWidth - _tableBox.ActualPaddingLeft - GetHorizontalSpacing(), _tableBox.Location.Y);
+       // Check for page break
+             if (WillCrossPageBoundary(currentY, currentY + estimatedRowHeight, pageHeight, marginTop, availableHeight, currentPageNumber)
+         && i > 0 && _tableBox.HtmlContainer != null)
+          {
+     // Create footer proxy for current page
+      if (_shouldRepeatFooters && _footerHeight > 0)
+         {
+        var footerY = CalculateFooterPositionAtPageBottom(currentY, pageHeight, marginTop, marginBottom, currentPageNumber);
+         var footerProxy = CreateFooterProxy(footerY);
+            if (footerProxy != null)
+      {
+           _tableBox.Boxes.Add(footerProxy);  // Add at end
+          await footerProxy.PerformLayout(g);
+           }
+    }
+
+    // Move to next page
+               var pageBreakOffset = CalculatePageBreakOffset(currentY, pageHeight, marginTop, marginBottom, currentPageNumber);
+            currentY += pageBreakOffset;
+     currentPageNumber++;
+
+                // Create new header proxy for new page
+          if (_shouldRepeatHeaders && _headerHeight > 0)
+      {
+            var headerProxy = CreateHeaderProxy(currentY);
+                 if (headerProxy != null)
+         {
+  _tableBox.Boxes.Add(headerProxy);  // Add at end
+     await headerProxy.PerformLayout(g);
+      currentY += _headerHeight + GetVerticalSpacing();
+maxRight = Math.Max(maxRight, headerProxy.ActualRight);
+             }
+    }
+
+  maxBottom = currentY;
+        }
+
+   // Layout body row
+  var (newMaxRight, newMaxBottom) = await LayoutBodyRow(g, row, startX, currentY, i, rowSpannedBoxes, maxRight, maxBottom);
+           maxRight = newMaxRight;
+   maxBottom = newMaxBottom;
+
+            currentY = maxBottom + GetVerticalSpacing();
+
+           row.Location = new RPoint(row.Boxes.Min(x => x.Location.X), row.Boxes.Min(x => x.Location.Y));
+ row.ActualRight = row.Boxes.Max(x => x.ActualRight);
+     row.ActualBottom = maxBottom;
             }
 
-            for (int i = 0; i < _allRows.Count; i++)
+            // Step 5: Create final footer proxy
+            if (_shouldRepeatFooters && _footerHeight > 0)
             {
-                var row = _allRows[i];
-                double curx = startx;
-                int curCol = 0;
-                bool breakPage = false;
-
-                for (int j = 0; j < row.Boxes.Count; j++)
+                var finalFooterProxy = CreateFooterProxy(currentY);
+                if (finalFooterProxy != null)
                 {
-                    CssBox cell = row.Boxes[j];
-                    if (curCol >= _columnWidths.Length)
-                        break;
-
-                    int rowspan = GetRowSpan(cell);
-                    var columnIndex = GetCellRealColumnIndex(row, cell);
-                    double width = GetCellWidth(columnIndex, cell);
-                    cell.Location = new RPoint(curx, cury);
-                    cell.Size = new RSize(width, 0f);
-                    await cell.PerformLayout(g); //That will automatically set the bottom of the cell
-
-                    //Alter max bottom only if row is cell's row + cell's rowspan - 1
-                    if (cell is CssSpacingBox sb)
-                    {
-                        if (sb.EndRow == currentrow)
-                        {
-                            maxBottom = Math.Max(maxBottom, sb.ExtendedBox.ActualBottom);
-                        }
-                    }
-                    else if (rowspan == 1)
-                    {
-                        maxBottom = Math.Max(maxBottom, cell.ActualBottom);
-                    }
-                    maxRight = Math.Max(maxRight, cell.ActualRight);
-                    curCol++;
-                    curx = cell.ActualRight + GetHorizontalSpacing();
+                    _tableBox.Boxes.Add(finalFooterProxy);
+                    await finalFooterProxy.PerformLayout(g);
+                    currentY += _footerHeight + GetVerticalSpacing();
+                    maxBottom = Math.Max(maxBottom, finalFooterProxy.ActualBottom);
+                    maxRight = Math.Max(maxRight, finalFooterProxy.ActualRight);
                 }
-
-                foreach (CssBox cell in row.Boxes)
-                {
-                    CssSpacingBox spacer = cell as CssSpacingBox;
-
-                    if (spacer == null && GetRowSpan(cell) == 1)
-                    {
-                        cell.ActualBottom = maxBottom;
-                        CssLayoutEngine.ApplyCellVerticalAlignment(g, cell);
-                    }
-                    else if (spacer != null && spacer.EndRow == currentrow)
-                    {
-                        spacer.ExtendedBox.ActualBottom = maxBottom;
-                        CssLayoutEngine.ApplyCellVerticalAlignment(g, spacer.ExtendedBox);
-                    }
-
-                    // If one cell crosses page borders then don't need to check other cells in the row
-                    if (_tableBox.PageBreakInside != CssConstants.Avoid) continue;
-
-                    breakPage = cell.BreakPage();
-                    if (!breakPage) continue;
-
-                    cury = cell.Location.Y;
-                    break;
-                }
-
-                if (breakPage) // go back to move the whole row to the next page
-                {
-                    if (i == 1) // do not leave single row in previous page
-                        i = -1; // Start layout from the first row on new page
-                    else
-                        i--;
-
-                    maxBottom = 0;
-                    continue;
-                }
-
-                cury = maxBottom + GetVerticalSpacing();
-
-                currentrow++;
             }
 
+            // Step 6: Set final table dimensions
             maxRight = Math.Max(maxRight, _tableBox.Location.X + _tableBox.ActualWidth);
             _tableBox.ActualRight = maxRight + GetHorizontalSpacing() + _tableBox.ActualBorderRightWidth;
-            _tableBox.ActualBottom = Math.Max(maxBottom, starty) + GetVerticalSpacing() + _tableBox.ActualBorderBottomWidth;
+            _tableBox.ActualBottom = Math.Max(maxBottom, startY) + GetVerticalSpacing() + _tableBox.ActualBorderBottomWidth;
+
+#if DEBUG
+         System.Console.WriteLine($"CssLayoutEngineTable.LayoutCells: END - _tableBox.Boxes.Count={_tableBox.Boxes.Count}");
+            for (int i = 0; i < _tableBox.Boxes.Count; i++)
+       {
+    var box = _tableBox.Boxes[i];
+  System.Console.WriteLine($"  TableBox child {i}: Type={box.GetType().Name}, Display={box.Display}");
+          }
+#endif
         }
 
         /// <summary>
+        /// Layout a single body row
+        /// </summary>
+        private async ValueTask<(double maxRight, double maxBottom)> LayoutBodyRow(RGraphics g, CssBox row, double startX, double currentY, int rowIndex,
+    Dictionary<int, List<CssBox>> rowSpannedBoxes, double initialMaxRight, double initialMaxBottom)
+        {
+            var currentX = startX;
+            var currentColumn = 0;
+            var rowMaxBottom = initialMaxBottom;
+            var rowMaxRight = initialMaxRight;
+
+            foreach (var cell in row.Boxes)
+            {
+                if (currentColumn >= _columnWidths!.Length)
+                    break;
+
+                var rowSpan = GetRowSpan(cell);
+                var columnIndex = GetCellRealColumnIndex(row, cell);
+                var width = GetCellWidth(columnIndex, cell);
+
+                cell.Location = new RPoint(currentX, currentY);
+                cell.ActualRight = cell.Location.X + width;
+
+                await cell.PerformLayout(g);
+
+                // Track max bottom
+                if (cell is CssSpacingBox sb)
+                {
+                    if (sb.EndRow == rowIndex)
+                    {
+                        rowMaxBottom = Math.Max(rowMaxBottom, sb.ExtendedBox.ActualBottom);
+                    }
+                }
+                else
+                {
+                    switch (rowSpan)
+                    {
+                        case 1:
+                            rowMaxBottom = Math.Max(rowMaxBottom, cell.ActualBottom);
+                            break;
+                        case > 1:
+                            {
+                                var endRow = rowIndex + rowSpan - 1;
+                                if (!rowSpannedBoxes.TryGetValue(endRow, out var rowSpannedBoxesForRow))
+                                {
+                                    rowSpannedBoxesForRow = [];
+                                    rowSpannedBoxes[endRow] = rowSpannedBoxesForRow;
+                                }
+                                rowSpannedBoxesForRow.Add(cell);
+                                break;
+                            }
+                    }
+                }
+
+                rowMaxRight = Math.Max(rowMaxRight, cell.ActualRight);
+                currentColumn++;
+                currentX = cell.ActualRight + GetHorizontalSpacing();
+            }
+
+            // Vertical alignment
+            IEnumerable<CssBox> boxesToVerticallyAlign = row.Boxes;
+            if (rowSpannedBoxes.TryGetValue(rowIndex, out var boxesThatEndOnRow))
+            {
+                boxesToVerticallyAlign = boxesToVerticallyAlign.Union(boxesThatEndOnRow);
+            }
+
+            foreach (var cell in boxesToVerticallyAlign)
+            {
+                if (cell is CssSpacingBox spacer)
+                {
+                    if (spacer.EndRow == rowIndex)
+                    {
+                        spacer.ExtendedBox.ActualBottom = rowMaxBottom;
+                        CssLayoutEngine.ApplyCellVerticalAlignment(g, spacer.ExtendedBox);
+                    }
+                }
+                else if (GetRowSpan(cell) == 1 || (boxesThatEndOnRow?.Contains(cell) ?? false))
+                {
+                    cell.ActualBottom = rowMaxBottom;
+                    CssLayoutEngine.ApplyCellVerticalAlignment(g, cell);
+                }
+            }
+
+            return (rowMaxRight, rowMaxBottom);
+        }
+        /// <summary>
         /// Gets the spanned width of a cell (With of all columns it spans minus one).
         /// </summary>
-        private double GetSpannedMinWidth(CssBox row, CssBox cell, int realcolindex, int colspan)
+        private double GetSpannedMinWidth(CssBox row, int realColumnIndex, int colspan)
         {
             double w = 0f;
-            for (int i = realcolindex; i < row.Boxes.Count || i < realcolindex + colspan - 1; i++)
+            for (var i = realColumnIndex; i < row.Boxes.Count || i < realColumnIndex + colspan - 1; i++)
             {
                 if (i < GetColumnMinWidths().Length)
                     w += GetColumnMinWidths()[i];
@@ -755,7 +956,7 @@ namespace PeachPDF.Html.Core.Dom
 
             for (int i = column; i < column + colspan; i++)
             {
-                if (column >= _columnWidths.Length)
+                if (column >= _columnWidths!.Length)
                     break;
                 if (_columnWidths.Length <= i)
                     break;
@@ -764,7 +965,7 @@ namespace PeachPDF.Html.Core.Dom
 
             sum += (colspan - 1) * GetHorizontalSpacing();
 
-            return sum; // -b.ActualBorderLeftWidth - b.ActualBorderRightWidth - b.ActualPaddingRight - b.ActualPaddingLeft;
+            return sum;
         }
 
         /// <summary>
@@ -773,15 +974,9 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="b"></param>
         private static int GetColSpan(CssBox b)
         {
-            string att = b.GetAttribute("colspan", "1");
-            int colspan;
+            var att = b.GetAttribute("colspan", "1");
 
-            if (!int.TryParse(att, out colspan))
-            {
-                return 1;
-            }
-
-            return colspan;
+            return !int.TryParse(att, out var colspan) ? 1 : colspan;
         }
 
         /// <summary>
@@ -790,15 +985,9 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="b"></param>
         private static int GetRowSpan(CssBox b)
         {
-            string att = b.GetAttribute("rowspan", "1");
-            int rowspan;
+            var att = b.GetAttribute("rowspan", "1");
 
-            if (!int.TryParse(att, out rowspan))
-            {
-                return 1;
-            }
-
-            return rowspan;
+            return !int.TryParse(att, out var rowSpan) ? 1 : rowSpan;
         }
 
         /// <summary>
@@ -808,13 +997,10 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="g">Device to use</param>
         private static async ValueTask MeasureWords(CssBox box, RGraphics g)
         {
-            if (box != null)
+            foreach (var childBox in box.Boxes)
             {
-                foreach (var childBox in box.Boxes)
-                {
-                    await childBox.MeasureWordsSize(g);
-                    await MeasureWords(childBox, g);
-                }
+                await childBox.MeasureWordsSize(g);
+                await MeasureWords(childBox, g);
             }
         }
 
@@ -825,7 +1011,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <returns></returns>
         private bool CanReduceWidth()
         {
-            for (int i = 0; i < _columnWidths.Length; i++)
+            for (var i = 0; i < _columnWidths!.Length; i++)
             {
                 if (CanReduceWidth(i))
                 {
@@ -844,7 +1030,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <returns></returns>
         private bool CanReduceWidth(int columnIndex)
         {
-            if (_columnWidths.Length >= columnIndex || GetColumnMinWidths().Length >= columnIndex)
+            if (_columnWidths!.Length >= columnIndex || GetColumnMinWidths().Length >= columnIndex)
                 return false;
             return _columnWidths[columnIndex] > GetColumnMinWidths()[columnIndex];
         }
@@ -860,17 +1046,13 @@ namespace PeachPDF.Html.Core.Dom
         /// </remarks>
         private double GetAvailableTableWidth()
         {
-            CssLength tblen = new CssLength(_tableBox.Width);
+            CssLength tableBoxLength = new(_tableBox.Width);
 
-            if (tblen.Number > 0)
-            {
-                _widthSpecified = true;
-                return CssValueParser.ParseLength(_tableBox.Width, _tableBox.ParentBox.AvailableWidth, _tableBox);
-            }
-            else
-            {
-                return _tableBox.ParentBox.AvailableWidth;
-            }
+            if (!(tableBoxLength.Number > 0)) return _tableBox.ContainingBlock.Size.Width;
+
+            _widthSpecified = true;
+            return CssValueParser.ParseLength(_tableBox.Width, _tableBox.ContainingBlock.Size.Width, _tableBox);
+
         }
 
         /// <summary>
@@ -888,7 +1070,7 @@ namespace PeachPDF.Html.Core.Dom
             if (tblen.Number > 0)
             {
                 _widthSpecified = true;
-                return CssValueParser.ParseLength(_tableBox.MaxWidth, _tableBox.ParentBox.AvailableWidth, _tableBox);
+                return CssValueParser.ParseLength(_tableBox.MaxWidth, _tableBox.ParentBox!.AvailableWidth, _tableBox);
             }
             else
             {
@@ -906,29 +1088,27 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="maxFullWidths">return the max width for each column - the max width the cell content can take without wrapping</param>
         private void GetColumnsMinMaxWidthByContent(bool onlyNans, out double[] minFullWidths, out double[] maxFullWidths)
         {
-            maxFullWidths = new double[_columnWidths.Length];
+            maxFullWidths = new double[_columnWidths!.Length];
             minFullWidths = new double[_columnWidths.Length];
 
-            foreach (CssBox row in _allRows)
+            foreach (var row in _allRows)
             {
-                for (int i = 0; i < row.Boxes.Count; i++)
+                for (var i = 0; i < row.Boxes.Count; i++)
                 {
-                    int col = GetCellRealColumnIndex(row, row.Boxes[i]);
+                    var col = GetCellRealColumnIndex(row, row.Boxes[i]);
                     col = _columnWidths.Length > col ? col : _columnWidths.Length - 1;
 
-                    if ((!onlyNans || double.IsNaN(_columnWidths[col])) && i < row.Boxes.Count)
-                    {
-                        double minWidth, maxWidth;
-                        row.Boxes[i].GetMinMaxWidth(out minWidth, out maxWidth);
+                    if ((onlyNans && !double.IsNaN(_columnWidths[col])) || i >= row.Boxes.Count) continue;
+                    row.Boxes[i].GetMinMaxWidth(out var minWidth, out var maxWidth);
 
-                        var colSpan = GetColSpan(row.Boxes[i]);
-                        minWidth = minWidth / colSpan;
-                        maxWidth = maxWidth / colSpan;
-                        for (int j = 0; j < colSpan; j++)
-                        {
-                            minFullWidths[col + j] = Math.Max(minFullWidths[col + j], minWidth);
-                            maxFullWidths[col + j] = Math.Max(maxFullWidths[col + j], maxWidth);
-                        }
+                    var colSpan = GetColSpan(row.Boxes[i]);
+                    minWidth /= colSpan;
+                    maxWidth /= colSpan;
+
+                    for (var j = 0; j < colSpan; j++)
+                    {
+                        minFullWidths[col + j] = Math.Max(minFullWidths[col + j], minWidth);
+                        maxFullWidths[col + j] = Math.Max(maxFullWidths[col + j], maxWidth);
                     }
                 }
             }
@@ -954,7 +1134,7 @@ namespace PeachPDF.Html.Core.Dom
         {
             double f = 0f;
 
-            foreach (double t in _columnWidths)
+            foreach (var t in _columnWidths!)
             {
                 if (double.IsNaN(t))
                     throw new Exception("CssTable Algorithm error: There's a NaN in column widths");
@@ -977,7 +1157,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="b"></param>
         private static int GetSpan(CssBox b)
         {
-            double f = CssValueParser.ParseNumber(b.GetAttribute("span"), 1);
+            var f = CssValueParser.ParseNumber(b.GetAttribute("span"), 1);
 
             return Math.Max(1, Convert.ToInt32(f));
         }
@@ -987,21 +1167,19 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         private double[] GetColumnMinWidths()
         {
-            if (_columnMinWidths == null)
+            if (_columnMinWidths != null) return _columnMinWidths;
+            _columnMinWidths = new double[_columnWidths!.Length];
+
+            foreach (var row in _allRows)
             {
-                _columnMinWidths = new double[_columnWidths.Length];
-
-                foreach (CssBox row in _allRows)
+                foreach (var cell in row.Boxes)
                 {
-                    foreach (CssBox cell in row.Boxes)
-                    {
-                        int colspan = GetColSpan(cell);
-                        int col = GetCellRealColumnIndex(row, cell);
-                        int affectcol = Math.Min(col + colspan, _columnMinWidths.Length) - 1;
-                        double spannedwidth = GetSpannedMinWidth(row, cell, col, colspan) + (colspan - 1) * GetHorizontalSpacing();
+                    var colspan = GetColSpan(cell);
+                    var col = GetCellRealColumnIndex(row, cell);
+                    var affectColumn = Math.Min(col + colspan, _columnMinWidths.Length) - 1;
+                    var spannedWidth = GetSpannedMinWidth(row, col, colspan) + (colspan - 1) * GetHorizontalSpacing();
 
-                        _columnMinWidths[affectcol] = Math.Max(_columnMinWidths[affectcol], cell.GetMinimumWidth() - spannedwidth);
-                    }
+                    _columnMinWidths[affectColumn] = Math.Max(_columnMinWidths[affectColumn], cell.GetMinimumWidth() - spannedWidth);
                 }
             }
 
@@ -1030,6 +1208,66 @@ namespace PeachPDF.Html.Core.Dom
         private double GetVerticalSpacing()
         {
             return _tableBox.BorderCollapse == CssConstants.Collapse ? -1f : _tableBox.ActualBorderSpacingVertical;
+        }
+
+        /// <summary>
+        /// Determines if a row would cross a page boundary
+        /// </summary>
+        private bool WillCrossPageBoundary(double currentY, double estimatedBottom, double pageHeight, double marginTop, double availableHeight, int currentPageNumber)
+        {
+            if (pageHeight >= double.MaxValue - 1)
+                return false;
+
+            var currentPageTop = (currentPageNumber * pageHeight) + marginTop;
+            var currentPageBottom = currentPageTop + availableHeight;
+
+            return estimatedBottom > currentPageBottom;
+        }
+
+        /// <summary>
+        /// Phase 3: Calculates the Y position for footer at the bottom of current page
+        /// </summary>
+        private double CalculateFooterPositionAtPageBottom(double currentY, double pageHeight, double marginTop, double marginBottom, int currentPageNumber)
+        {
+            if (pageHeight >= double.MaxValue - 1)
+                return currentY;
+
+            var currentPageTop = (currentPageNumber * pageHeight) + marginTop;
+            var currentPageBottom = currentPageTop + pageHeight;
+
+            // Position footer at bottom of page, accounting for margins and footer height
+            return currentPageBottom - _footerHeight - marginBottom;
+        }
+
+        /// <summary>
+        /// Phase 3: Estimates the height a row will need (for page break detection)
+        /// </summary>
+        private double EstimateRowHeight(CssBox row)
+        {
+            // Quick estimation: use max of cell minimum heights
+            double maxHeight = 0;
+
+            foreach (var cell in row.Boxes)
+            {
+                // Use font height as minimum estimate
+                var estimatedHeight = cell.ActualFont?.Height ?? 12;
+                maxHeight = Math.Max(maxHeight, estimatedHeight);
+            }
+
+            return maxHeight + GetVerticalSpacing();
+        }
+
+        /// <summary>
+        /// Phase 3: Calculates offset needed to move to the next page
+        /// </summary>
+        private double CalculatePageBreakOffset(double currentY, double pageHeight, double marginTop, double marginBottom, int currentPageNumber)
+        {
+            if (pageHeight >= double.MaxValue - 1)
+                return 0;
+
+            var nextPageStart = (currentPageNumber + 1) * pageHeight + marginTop;
+
+            return nextPageStart - currentY + marginTop;
         }
 
         #endregion

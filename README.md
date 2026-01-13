@@ -11,6 +11,10 @@ _Note: This package depends on PeachPDF.PdfSharpCore and various SixLabors libra
 
 Install the PeachPDF package from nuget.org
 
+```
+dotnet add package PeachPDF
+```
+
 ## Using PeachPDF
 
 ### Simple example
@@ -54,8 +58,6 @@ document.Save(stream);
 
 You can also render HTML from the Internet to a PDF
 
-_Note: a future version will be required in order to have the base URI automatically detected, so make sure the document has a <base href> tag set for images, styles, and links to resolve correctly_
-
 ```csharp
 HttpClient httpClient = new();
 
@@ -73,3 +75,34 @@ var stream = new MemoryStream();
 var document = await generator.GeneratePdf(null, pdfConfig);
 document.Save(stream);
 ```
+
+Note that loading images using relative paths will default to local file system unless a RNetworkLoader instance is provided (such as HttpClientNetworkAdapter) that sets the BaseUri property or if the HTML has a <base> element with an href property set. Images will need to be in the current working directory.
+
+## Fonts
+
+### Default Font
+
+By default, PeachPDF uses Segoe UI. Segoe UI is installed by default on Windows, but isn't necessarily available on other platforms. You can remap Segoe UI to another font using
+
+```csharp
+PdfGenerator generator = new();
+generator.AddFontFamilyMapping("Segoe UI","sans-serif"); // or any other system installed font
+```
+
+### Adding custom fonts
+
+The recommended way to install custom fonts is to install them into your operating system.
+PeachPDF by default picks up TrueType fonts from the operating system (%SystemRoot%\Fonts and %LOCALAPPDATA%\Microsoft\Windows\Fonts on Windows, /Library/Fonts on Mac, and /usr/share/fonts, /usr/local/share/fonts/, and $HOME/.fonts on Linux)
+
+You can also add a font at runtime by loading the ttf font into a Stream, and then using the AddFontFromStream API:
+
+```csharp
+PdfGenerator generator = new();
+await generator.AddFontFromStream(fontStream); // where fontStream is a System.IO.Stream of the loaded TTF file
+```
+
+Web fonts loaded via @font-face are also supported.
+
+### Supported font formats
+
+We support any font supported by SixLabors.Fonts, currently TrueType, CFF, WOFF, and WOFF2 as of the time of this writing.

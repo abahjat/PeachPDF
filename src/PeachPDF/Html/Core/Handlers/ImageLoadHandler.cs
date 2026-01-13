@@ -13,11 +13,10 @@
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Utils;
+using PeachPDF.Network;
 using SixLabors.ImageSharp;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core.Handlers
@@ -51,7 +50,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// <summary>
         /// Must be open as long as the image is in use
         /// </summary>
-        private FileStream _imageFileStream;
+        private FileStream? _imageFileStream;
 
         /// <summary>
         /// flag to indicate if to release the image object on box dispose (only if image was loaded by the box)
@@ -72,7 +71,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// <param name="htmlContainer">the container of the html to handle load image for</param>
         public ImageLoadHandler(HtmlContainerInt htmlContainer)
         {
-            ArgChecker.AssertArgNotNull(htmlContainer, "htmlContainer");
+            ArgumentNullException.ThrowIfNull(htmlContainer);
 
             _htmlContainer = htmlContainer;
         }
@@ -80,7 +79,17 @@ namespace PeachPDF.Html.Core.Handlers
         /// <summary>
         /// the image instance of the loaded image
         /// </summary>
-        public RImage Image { get; private set; }
+        public RImage? Image { get; private set; }
+
+        /// <summary>
+        /// Sets image of this image box from a CSS image definition
+        /// </summary>
+        /// <param name="image"></param>
+        /// <returns></returns>
+        public async ValueTask LoadImage(CssImage image)
+        {
+            if (image.Kind == CssImage.CssImageKind.Url) await LoadImage(image.Url!);
+        }
 
         /// <summary>
         /// Set image of this image box by analyzing the src attribute.<br/>
@@ -94,22 +103,14 @@ namespace PeachPDF.Html.Core.Handlers
         /// on the main thread and not thread-pool.
         /// </remarks>
         /// <param name="src">the source of the image to load</param>
-        /// <param name="attributes">the collection of attributes on the element to use in event</param>
         /// <returns>the image object (null if failed)</returns>
-        public async ValueTask LoadImage(string src, Dictionary<string, string> attributes)
+        public async ValueTask LoadImage(string src)
         {
             try
             {
                 if (!string.IsNullOrEmpty(src))
                 {
-                    if (src.StartsWith("data:image", StringComparison.CurrentCultureIgnoreCase))
-                    {
-                        SetFromInlineData(src);
-                    }
-                    else
-                    {
-                        await SetImageFromPath(src);
-                    }
+                    await SetImageFromPath(src);
                 }
                 else
                 {
@@ -118,8 +119,8 @@ namespace PeachPDF.Html.Core.Handlers
             }
             catch (Exception ex)
             {
-                _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Exception in handling image source", ex);
                 ImageLoadComplete();
+                _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Exception in handling image source", ex);
             }
         }
 
@@ -136,67 +137,42 @@ namespace PeachPDF.Html.Core.Handlers
         #region Private methods
 
         /// <summary>
-        /// Load the image from inline base64 encoded string data.
-        /// </summary>
-        /// <param name="src">the source that has the base64 encoded image</param>
-        private void SetFromInlineData(string src)
-        {
-            Image = GetImageFromData(src);
-            if (Image == null)
-                _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Failed extract image from inline data");
-            _releaseImageObject = true;
-            ImageLoadComplete();
-        }
-
-        /// <summary>
-        /// Extract image object from inline base64 encoded data in the src of the html img element.
-        /// </summary>
-        /// <param name="src">the source that has the base64 encoded image</param>
-        /// <returns>image from base64 data string or null if failed</returns>
-        private RImage GetImageFromData(string src)
-        {
-            var s = src[(src.IndexOf(':') + 1)..].Split([','], 2);
-            if (s.Length != 2) return null;
-
-            int imagePartsCount = 0, base64PartsCount = 0;
-            foreach (var part in s[0].Split([';']))
-            {
-                var pPart = part.Trim();
-                if (pPart.StartsWith("image/", StringComparison.InvariantCultureIgnoreCase))
-                    imagePartsCount++;
-                if (pPart.Equals("base64", StringComparison.InvariantCultureIgnoreCase))
-                    base64PartsCount++;
-            }
-
-            if (imagePartsCount <= 0) return null;
-
-            byte[] imageData = base64PartsCount > 0 ? Convert.FromBase64String(s[1].Trim()) : new UTF8Encoding().GetBytes(Uri.UnescapeDataString(s[1].Trim()));
-            return LoadImageFromStream(new MemoryStream(imageData));
-        }
-
-        /// <summary>
         /// Load image from path of image file or URL.
         /// </summary>
         /// <param name="path">the file path or uri to load image from</param>
         private async ValueTask SetImageFromPath(string path)
         {
-            var uri = CommonUtils.TryGetUri(path);
+            var uri = new RUri(path, UriKind.RelativeOrAbsolute);
 
-            if (uri != null && uri.Scheme != "file")
+            if (!uri.IsAbsoluteUri)
+            {
+                var baseElement = DomUtils.GetBoxByTagName(_htmlContainer.Root, "base");
+                var baseUrl = "";
+
+                if (baseElement is not null)
+                {
+                    baseUrl = baseElement.HtmlTag?.TryGetAttribute("href", "");
+                }
+
+                var baseUri = string.IsNullOrWhiteSpace(baseUrl) ? _htmlContainer.Adapter.BaseUri : new RUri(baseUrl);
+                uri = baseUri is null ? uri : new RUri(baseUri, uri);
+            }
+
+            if (uri is { IsAbsoluteUri: true, Scheme: not "file" })
             {
                 await SetImageFromUrl(uri);
             }
             else
             {
-                var fileInfo = CommonUtils.TryGetFileInfo(uri != null ? uri.AbsolutePath : path);
+                var fileInfo = CommonUtils.TryGetFileInfo(path);
                 if (fileInfo != null)
                 {
                     SetImageFromFile(fileInfo);
                 }
                 else
                 {
-                    _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Failed load image, invalid source: " + path);
                     ImageLoadComplete();
+                    _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Failed load image, invalid source: " + path);
                 }
             }
         }
@@ -239,23 +215,21 @@ namespace PeachPDF.Html.Core.Handlers
             }
             catch (Exception ex)
             {
-                _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Failed to load image from disk: " + source, ex);
                 ImageLoadComplete();
+                _htmlContainer.ReportError(HtmlRenderErrorType.Image, "Failed to load image from disk: " + source, ex);
             }
         }
 
-        private RImage LoadImageFromStream(Stream stream)
+        private void LoadImageFromStream(Stream stream)
         {
             try
             {
                 Image = _htmlContainer.Adapter.ImageFromStream(stream);
             }
-            catch (UnknownImageFormatException exception)
+            catch (UnknownImageFormatException)
             {
-                Image = _htmlContainer.Adapter.GetLoadingFailedImage();
+                Image = null;
             }
-
-            return Image;
         }
 
         /// <summary>
@@ -263,23 +237,25 @@ namespace PeachPDF.Html.Core.Handlers
         /// Create local file name in temp folder from the URI, if the file already exists use it as it has already been downloaded.
         /// If not download the file.
         /// </summary>
-        private async ValueTask SetImageFromUrl(Uri source)
+        private async ValueTask SetImageFromUrl(RUri source)
         {
-            if (source.IsFile)
+            if (source is { IsAbsoluteUri: true, IsFile: true })
             {
-                var filePath = CommonUtils.GetLocalfileName(source);
+                var filePath = CommonUtils.GetLocalFileName(source);
 
-                if (filePath.Exists && filePath.Length > 0)
+                if (filePath is { Exists: true, Length: > 0 })
                 {
                     SetImageFromFile(filePath);
                 }
+
+                return;
             }
 
-            var stream = await _htmlContainer.Adapter.GetResourceStream(source);
+            var networkResponse = await _htmlContainer.Adapter.GetResourceStream(source);
 
-            if (stream is not null)
+            if (networkResponse?.ResourceStream is not null)
             {
-                LoadImageFromStream(stream);
+                LoadImageFromStream(networkResponse.ResourceStream);
             }
 
             ImageLoadComplete();

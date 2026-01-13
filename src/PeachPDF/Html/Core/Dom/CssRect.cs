@@ -94,7 +94,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets the actual width of whitespace between words.
         /// </summary>
-        public double ActualWordSpacing => (OwnerBox != null ? (HasSpaceAfter ? OwnerBox.ActualWordSpacing : 0) + (IsImage ? OwnerBox.ActualWordSpacing : 0) : 0);
+        public double ActualWordSpacing => (HasSpaceAfter ? OwnerBox.ActualWordSpacing : 0) + (IsImage ? OwnerBox.ActualWordSpacing : 0);
 
         /// <summary>
         /// Height of the rectangle
@@ -136,7 +136,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets the image this words represents (if one exists)
         /// </summary>
-        public virtual RImage Image
+        public virtual RImage? Image
         {
             get => null;
             // ReSharper disable ValueParameterNotUsed
@@ -163,12 +163,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets the text of the word
         /// </summary>
-        public virtual string Text => null;
-
-        /// <summary>
-        /// Gets or sets an offset to be considered in measurements
-        /// </summary>
-        internal double LeftGlyphPadding => OwnerBox != null ? OwnerBox.ActualFont.LeftPadding : 0;
+        public virtual string? Text => null;
 
         /// <summary>
         /// Represents this word for debugging purposes
@@ -177,26 +172,23 @@ namespace PeachPDF.Html.Core.Dom
         public override string ToString()
         {
             return
-                $"{Text.Replace(' ', '-').Replace("\n", "\\n")} ({Text.Length} char{(Text.Length != 1 ? "s" : string.Empty)})";
+                $"{Text!.Replace(' ', '-').Replace("\n", "\\n")} ({Text.Length} char{(Text.Length != 1 ? "s" : string.Empty)})";
         }
 
         public bool BreakPage()
         {
-            var container = this.OwnerBox.HtmlContainer;
+            var container = OwnerBox.HtmlContainer;
 
-            if (this.Height >= container.PageSize.Height)
+            if (Height >= container!.PageSize.Height)
                 return false;
 
-            var remTop = (this.Top - container.MarginTop) % container.PageSize.Height;
-            var remBottom = (this.Bottom - container.MarginTop) % container.PageSize.Height;
+            var remTop = (Top - container.MarginTop) % container.PageSize.Height;
+            var remBottom = (Bottom - container.MarginTop) % container.PageSize.Height;
 
-            if (remTop > remBottom)
-            {
-                this.Top += container.PageSize.Height - remTop + 1;
-                return true;
-            }
+            if (!(remTop > remBottom)) return false;
+            Top += container.PageSize.Height - remTop + 1;
+            return true;
 
-            return false;
         }
     }
 }

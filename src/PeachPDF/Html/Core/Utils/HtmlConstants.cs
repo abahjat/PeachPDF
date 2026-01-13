@@ -20,6 +20,7 @@ namespace PeachPDF.Html.Core.Utils
         //        public const string BODY = "BODY";
         //        public const string BR = "BR";
         //        public const string BUTTON = "BUTTON";
+        public const string Bottom = "bottom";
         public const string Caption = "caption";
         //        public const string CENTER = "CENTER";
         //        public const string CITE = "CITE";
@@ -59,12 +60,14 @@ namespace PeachPDF.Html.Core.Utils
         //        public const string LABEL = "LABEL";
         //        public const string LEGEND = "LEGEND";
         public const string Li = "li";
+
+        public const string Middle = "middle";
         //        public const string LINK = "LINK";
         //        public const string MAP = "MAP";
         //        public const string MENU = "MENU";
         //        public const string META = "META";
         //        public const string NOFRAMES = "NOFRAMES";
-        //        public const string NOSCRIPT = "NOSCRIPT";
+        public const string NoScript = "noscript";
         //        public const string OBJECT = "OBJECT";
         //        public const string OL = "OL";
         //        public const string OPTGROUP = "OPTGROUP";
@@ -92,6 +95,7 @@ namespace PeachPDF.Html.Core.Utils
         public const string Th = "th";
         public const string Thead = "thead";
         //        public const string TITLE = "TITLE";
+        public const string Top = "top";
         public const string Tr = "tr";
         //        public const string TT = "TT";
         //        public const string U = "U";

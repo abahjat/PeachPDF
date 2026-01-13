@@ -40,7 +40,7 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         /// <param name="parent">the parent box of this box</param>
         /// <param name="tag">the html tag data of this box</param>
-        public CssBoxFrame(CssBox parent, HtmlTag tag)
+        public CssBoxFrame(CssBox? parent, HtmlTag tag)
             : base(parent, tag)
         {
             _imageWord = new CssRectImage(this);
@@ -54,11 +54,6 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         public override bool IsClickable => true;
 
-        /// <summary>
-        /// Get the href link of the box (by default get "href" attribute)
-        /// </summary>
-        public override string HrefLink => GetAttribute("src");
-
         #region Private methods
 
         /// <summary>
@@ -69,12 +64,12 @@ namespace PeachPDF.Html.Core.Dom
         {
             var rects = CommonUtils.GetFirstValueOrDefault(Rectangles);
 
-            RPoint offset = (HtmlContainer != null && !IsFixed) ? HtmlContainer.ScrollOffset : RPoint.Empty;
+            var offset = (HtmlContainer != null && !IsFixed) ? HtmlContainer.ScrollOffset : RPoint.Empty;
             rects.Offset(offset);
 
             var clipped = RenderUtils.ClipGraphicsByOverflow(g, this);
 
-            PaintBackground(g, rects, true, true);
+            PaintBackground(g, rects, true);
 
             BordersDrawHandler.DrawBoxBorders(g, this, rects, true, true);
 
@@ -87,7 +82,7 @@ namespace PeachPDF.Html.Core.Dom
             tmpRect.Y = Math.Floor(tmpRect.Y);
             var rect = tmpRect;
 
-            DrawImage(g, offset, rect);
+            DrawImage(g, rect);
 
             if (clipped)
                 g.PopClip();
@@ -98,7 +93,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Draw video image over the iframe if found.
         /// </summary>
-        private void DrawImage(RGraphics g, RPoint offset, RRect rect)
+        private void DrawImage(RGraphics g, RRect rect)
         {
             if (_imageWord.Image == null) return;
 

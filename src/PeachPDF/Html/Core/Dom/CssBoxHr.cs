@@ -10,12 +10,12 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using System.Threading.Tasks;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core.Handlers;
 using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
+using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core.Dom
 {
@@ -29,7 +29,7 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         /// <param name="parent">the parent box of this box</param>
         /// <param name="tag">the html tag data of this box</param>
-        public CssBoxHr(CssBox parent, HtmlTag tag)
+        public CssBoxHr(CssBox? parent, HtmlTag tag)
             : base(parent, tag)
         {
             Display = CssConstants.Block;

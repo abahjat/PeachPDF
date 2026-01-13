@@ -27,14 +27,14 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
-using System;
-using System.Diagnostics;
-using System.Globalization;
-using System.ComponentModel;
-using PeachPDF.PdfSharpCore.Pdf.IO;
 using PeachPDF.PdfSharpCore.Drawing;
 using PeachPDF.PdfSharpCore.Pdf.Advanced;
 using PeachPDF.PdfSharpCore.Pdf.Annotations;
+using PeachPDF.PdfSharpCore.Pdf.IO;
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
 
 namespace PeachPDF.PdfSharpCore.Pdf
 {
@@ -90,7 +90,7 @@ namespace PeachPDF.PdfSharpCore.Pdf
                 // at System.Globalization.RegionInfo..ctor
                 Size = PageSize.A4;
             }
-            
+
 #pragma warning disable 168
             // Force creation of MediaBox object by invoking property
             PdfRectangle rect = MediaBox;
@@ -429,6 +429,18 @@ namespace PeachPDF.PdfSharpCore.Pdf
         public PdfLinkAnnotation AddDocumentLink(PdfRectangle rect, int destinationPage)
         {
             PdfLinkAnnotation annotation = PdfLinkAnnotation.CreateDocumentLink(rect, destinationPage);
+            Annotations.Add(annotation);
+            return annotation;
+        }
+
+        /// <summary>
+        /// Adds an internal document link.
+        /// </summary>
+        /// <param name="rect">The link area in default page coordinates.</param>
+        /// <param name="destinationName">The Named Destination’s name.</param>
+        public PdfLinkAnnotation AddDocumentLink(PdfRectangle rect, string destinationName)
+        {
+            var annotation = PdfLinkAnnotation.CreateDocumentLink(rect, destinationName);
             Annotations.Add(annotation);
             return annotation;
         }

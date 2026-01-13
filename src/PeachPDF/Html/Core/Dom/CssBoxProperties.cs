@@ -12,6 +12,7 @@
 
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
+using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
 using System.Globalization;
@@ -37,19 +38,16 @@ namespace PeachPDF.Html.Core.Dom
         private string _borderRightColor = "black";
         private string _borderBottomColor = "black";
         private string _borderLeftColor = "black";
-        private string _bottom;
+        private string? _bottom;
         private string _color = "black";
         private string _cornerRadius = "0";
         private string _fontSize = "medium";
-        private string _left = "auto";
-        private string _lineHeight = "normal";
         private string _paddingLeft = "0";
         private string _paddingBottom = "0";
         private string _paddingRight = "0";
         private string _paddingTop = "0";
-        private string _right;
+        private string? _right;
         private string _textIndent = "0";
-        private string _top = "auto";
         private string _wordSpacing = "normal";
 
         #endregion
@@ -57,28 +55,17 @@ namespace PeachPDF.Html.Core.Dom
 
         #region Fields
 
-        /// <summary>
-        /// Gets or sets the location of the box
-        /// </summary>
-        private RPoint _location;
-
         private double _actualCornerNw = double.NaN;
         private double _actualCornerNe = double.NaN;
         private double _actualCornerSw = double.NaN;
         private double _actualCornerSe = double.NaN;
         private RColor _actualColor = RColor.Empty;
         private double _actualBackgroundGradientAngle = double.NaN;
-        private double _actualHeight = double.NaN;
-        private double _actualWidth = double.NaN;
         private double _actualPaddingTop = double.NaN;
         private double _actualPaddingBottom = double.NaN;
         private double _actualPaddingRight = double.NaN;
         private double _actualPaddingLeft = double.NaN;
-        private double _actualMarginTop = double.NaN;
         private double _collapsedMarginTop = double.NaN;
-        private double _actualMarginBottom = double.NaN;
-        private double _actualMarginRight = double.NaN;
-        private double _actualMarginLeft = double.NaN;
         private double _actualBorderTopWidth = double.NaN;
         private double _actualBorderLeftWidth = double.NaN;
         private double _actualBorderBottomWidth = double.NaN;
@@ -87,8 +74,6 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// the width of whitespace between words
         /// </summary>
-        private double _actualLineHeight = double.NaN;
-
         private double _actualWordSpacing = double.NaN;
         private double _actualTextIndent = double.NaN;
         private double _actualBorderSpacingHorizontal = double.NaN;
@@ -99,7 +84,8 @@ namespace PeachPDF.Html.Core.Dom
         private RColor _actualBorderBottomColor = RColor.Empty;
         private RColor _actualBorderRightColor = RColor.Empty;
         private RColor _actualBackgroundColor = RColor.Empty;
-        private RFont _actualFont;
+        private RFont? _actualFont;
+        private string _display = "inline";
 
         #endregion
 
@@ -197,6 +183,7 @@ namespace PeachPDF.Html.Core.Dom
         public string BorderSpacing { get; set; } = "0";
 
         public string BorderCollapse { get; set; } = "separate";
+        public string BoxSizing { get; set; } = CssConstants.ContentBox;
 
         public string CornerRadius
         {
@@ -243,6 +230,10 @@ namespace PeachPDF.Html.Core.Dom
         public string CornerSeRadius { get; set; } = "0";
 
         public string CornerSwRadius { get; set; } = "0";
+        public string CounterIncrement { get; set; } = CssConstants.None;
+        public string CounterReset { get; set; } = CssConstants.None;
+        public string CounterSet { get; set; } = CssConstants.None;
+        public string StringSet { get; set; } = CssConstants.None;
 
         public string MarginBottom { get; set; } = "0";
 
@@ -292,36 +283,17 @@ namespace PeachPDF.Html.Core.Dom
             }
         }
 
-        public string PageBreakBefore { get; set; } = CssConstants.Auto;
-        public string PageBreakInside { get; set; } = CssConstants.Auto;
+        public string BreakBefore { get; set; } = CssConstants.Auto;
+        public string BreakInside { get; set; } = CssConstants.Auto;
+        public string BreakAfter { get; set; } = CssConstants.Auto;
 
-        public string Left
-        {
-            get => _left;
-            set
-            {
-                _left = value;
+        public string Left { get; set; } = CssConstants.Auto;
 
-                if (Position == CssConstants.Fixed)
-                {
-                    _location = GetActualLocation(Left, Top);
-                }
-            }
-        }
+        public string Top { get; set; } = CssConstants.Auto;
 
-        public string Top
-        {
-            get => _top;
-            set {
-                _top = value;
+        public string Bottom { get; set; } = CssConstants.Auto;
 
-                if (Position == CssConstants.Fixed)
-                {
-                    _location = GetActualLocation(Left, Top);
-                }
-
-            }
-        }
+        public string Right { get; set; } = CssConstants.Auto;
 
         public string Width { get; set; } = "auto";
 
@@ -352,23 +324,49 @@ namespace PeachPDF.Html.Core.Dom
             }
         }
 
-        public string Content { get; set; } = "normal";
+        public string Content { get; set; } = CssConstants.Normal;
+        public string Display
+        {
+            get
+            {
 
-        public string Display { get; set; } = "inline";
+                if (Float is not CssConstants.None)
+                {
+                    return _display switch
+                    {
+                        "inline" => "block",
+                        "inline-block" => "block",
+                        "inline-table" => "table",
+                        "table-row" => "block",
+                        "table-row-group" => "block",
+                        "table-column" => "block",
+                        "table-column-group" => "block",
+                        "table-cell" => "block",
+                        "table-caption" => "block",
+                        "table-header-group" => "block",
+                        "table-footer-group" => "block",
+                        "inline-flex" => "flex",
+                        "inline-grid" => "grid",
+                        _ => _display
+                    };
+                }
+
+                return _display;
+            }
+            set => _display = value;
+        }
 
         public string Direction { get; set; } = "ltr";
 
         public string EmptyCells { get; set; } = "show";
 
-        public string Float { get; set; } = "none";
+        public string Float { get; set; } = CssConstants.None;
+
+        public string Clear { get; set; } = CssConstants.None;
 
         public string Position { get; set; } = "static";
 
-        public string LineHeight
-        {
-            get => _lineHeight;
-            set => _lineHeight = string.Format(NumberFormatInfo.InvariantInfo, "{0}px", CssValueParser.ParseLength(value, Size.Height, this, CssConstants.Em));
-        }
+        public string LineHeight { get; set; } = "normal";
 
         public string VerticalAlign { get; set; } = "baseline";
 
@@ -400,19 +398,19 @@ namespace PeachPDF.Html.Core.Dom
 
         public string WordBreak { get; set; } = "normal";
 
-        public string FontFamily { get; set; }
+        public string? FontFamily { get; set; }
 
         public string FontSize
         {
             get => _fontSize;
             set
             {
-                string length = RegexParserUtils.Search(RegexParserUtils.CssLengthRegex(), value);
+                var length = RegexParserUtils.Search(RegexParserUtils.CssLengthRegex(), value);
 
                 if (length != null)
                 {
                     string computedValue;
-                    CssLength len = new CssLength(length);
+                    CssLength len = new(length);
 
                     if (len.HasError)
                     {
@@ -420,7 +418,7 @@ namespace PeachPDF.Html.Core.Dom
                     }
                     else if (len.Unit == CssUnit.Ems && GetParent() != null)
                     {
-                        computedValue = len.ConvertEmToPoints(GetParent().ActualFont.Size).ToString();
+                        computedValue = len.ConvertEmToPoints(GetParent()!.ActualFont.Size).ToString();
                     }
                     else
                     {
@@ -442,8 +440,6 @@ namespace PeachPDF.Html.Core.Dom
 
         public string FontWeight { get; set; } = "normal";
 
-        public string ListStyle { get; set; } = string.Empty;
-
         public string Overflow { get; set; } = "visible";
 
         public string ListStylePosition { get; set; } = "outside";
@@ -457,16 +453,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets or sets the location of the box
         /// </summary>
-        public RPoint Location
-        {
-            get {
-                if (!_location.IsEmpty || Position != CssConstants.Fixed) return _location;
-
-                _location = GetActualLocation(Left, Top);
-                return _location;
-            }
-            set => _location = value;
-        }
+        public RPoint Location { get; set; }
 
         /// <summary>
         /// Gets or sets the size of the box
@@ -476,20 +463,58 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets the bounds of the box
         /// </summary>
-        public RRect Bounds => new(Location, Size);
+        public RRect Bounds
+        {
+            get
+            {
+                var boundingBoxSize = new RSize(ActualBoxSizingWidth, ActualBoxSizingHeight);
+
+                return new RRect(Location, boundingBoxSize);
+            }
+        }
 
         /// <summary>
         /// Gets the width available on the box, counting padding and margin.
         /// </summary>
-        public double AvailableWidth => Size.Width - ActualBorderLeftWidth - ActualPaddingLeft - ActualPaddingRight - ActualBorderRightWidth;
+        public double AvailableWidth => ActualBoxSizingWidth - ActualBorderLeftWidth - ActualPaddingLeft - ActualPaddingRight - ActualBorderRightWidth;
+
+        public double ActualBoxSizeIncludedWidth
+        {
+            get
+            {
+                return BoxSizing switch
+                {
+                    CssConstants.ContentBox => ActualPaddingLeft + ActualPaddingRight + ActualBorderLeftWidth + ActualBorderRightWidth,
+                    CssConstants.BorderBox => 0,
+                    _ => throw new HtmlRenderException("Unknown box sizing", HtmlRenderErrorType.Layout)
+                };
+            }
+        }
+
+        public double ActualBoxSizingWidth => Size.Width + ActualBoxSizeIncludedWidth;
+
+        public double ActualBoxSizeIncludedHeight
+        {
+            get
+            {
+                return BoxSizing switch
+                {
+                    CssConstants.ContentBox => ActualPaddingTop + ActualPaddingBottom + ActualBorderTopWidth + ActualBorderBottomWidth,
+                    CssConstants.BorderBox => 0,
+                    _ => throw new HtmlRenderException("Unknown box sizing", HtmlRenderErrorType.Layout)
+                };
+            }
+        }
+
+        public double ActualBoxSizingHeight => Size.Height + ActualBoxSizeIncludedHeight;
 
         /// <summary>
         /// Gets the right of the box. When setting, it will affect only the width of the box.
         /// </summary>
         public double ActualRight
         {
-            get => Location.X + Size.Width;
-            set => Size = new RSize(value - Location.X, Size.Height);
+            get => Location.X + ActualBoxSizingWidth;
+            set => Size = new RSize(value - ActualBoxSizeIncludedWidth - Location.X, Size.Height);
         }
 
         /// <summary>
@@ -498,8 +523,8 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         public double ActualBottom
         {
-            get => Location.Y + Size.Height;
-            set => Size = new RSize(Size.Width, value - Location.Y);
+            get => Location.Y + ActualBoxSizingHeight;
+            set => Size = new RSize(Size.Width, value - ActualBoxSizeIncludedHeight - Location.Y);
         }
 
         /// <summary>
@@ -530,42 +555,12 @@ namespace PeachPDF.Html.Core.Dom
         /// <summary>
         /// Gets the actual height
         /// </summary>
-        public double ActualHeight
-        {
-            get
-            {
-                if (double.IsNaN(_actualHeight))
-                {
-                    _actualHeight = CssValueParser.ParseLength(Height, Size.Height, this);
-
-                    if (CssValueParser.IsValidLength(MinHeight))
-                    {
-                        var minHeight = CssValueParser.ParseLength(MinHeight, Size.Height, this);
-                        
-                        if (_actualHeight < minHeight)
-                        {
-                            _actualHeight = minHeight;
-                        }
-                    }
-                }
-                return _actualHeight;
-            }
-        }
+        public double ActualHeight => ActualBoxSizingHeight;
 
         /// <summary>
         /// Gets the actual height
         /// </summary>
-        public double ActualWidth
-        {
-            get
-            {
-                if (double.IsNaN(_actualWidth))
-                {
-                    _actualWidth = CssValueParser.ParseLength(Width, Size.Width, this);
-                }
-                return _actualWidth;
-            }
-        }
+        public double ActualWidth => ActualBoxSizingWidth;
 
         /// <summary>
         /// Gets the actual top's padding
@@ -628,89 +623,12 @@ namespace PeachPDF.Html.Core.Dom
         }
 
         /// <summary>
-        /// Gets the actual top's Margin
-        /// </summary>
-        public double ActualMarginTop
-        {
-            get
-            {
-                if (!double.IsNaN(_actualMarginTop)) return _actualMarginTop;
-
-                if (MarginTop == CssConstants.Auto)
-                    MarginTop = "0";
-
-                var actualMarginTop = CssValueParser.ParseLength(MarginTop, Size.Width, this);
-                if (MarginLeft.EndsWith('%'))
-                    return actualMarginTop;
-
-                _actualMarginTop = actualMarginTop;
-                return _actualMarginTop;
-            }
-        }
-
-        /// <summary>
         /// The margin top value if was effected by margin collapse.
         /// </summary>
         public double CollapsedMarginTop
         {
             get => double.IsNaN(_collapsedMarginTop) ? 0 : _collapsedMarginTop;
             set => _collapsedMarginTop = value;
-        }
-
-        /// <summary>
-        /// Gets the actual Margin on the left
-        /// </summary>
-        public double ActualMarginLeft
-        {
-            get
-            {
-                if (!double.IsNaN(_actualMarginLeft)) return _actualMarginLeft;
-
-                if (MarginLeft == CssConstants.Auto)
-                    MarginLeft = "0";
-                var actualMarginLeft = CssValueParser.ParseLength(MarginLeft, Size.Width, this);
-                if (MarginLeft.EndsWith('%'))
-                    return actualMarginLeft;
-                _actualMarginLeft = actualMarginLeft;
-                return _actualMarginLeft;
-            }
-        }
-
-        /// <summary>
-        /// Gets the actual Margin of the bottom
-        /// </summary>
-        public double ActualMarginBottom
-        {
-            get
-            {
-                if (!double.IsNaN(_actualMarginBottom)) return _actualMarginBottom;
-
-                if (MarginBottom == CssConstants.Auto)
-                    MarginBottom = "0";
-                var actualMarginBottom = CssValueParser.ParseLength(MarginBottom, Size.Width, this);
-                if (MarginLeft.EndsWith('%'))
-                    return actualMarginBottom;
-                _actualMarginBottom = actualMarginBottom;
-                return _actualMarginBottom;
-            }
-        }
-
-        /// <summary>
-        /// Gets the actual Margin on the right
-        /// </summary>
-        public double ActualMarginRight
-        {
-            get
-            {
-                if (!double.IsNaN(_actualMarginRight)) return _actualMarginRight;
-                if (MarginRight == CssConstants.Auto)
-                    MarginRight = "0";
-                var actualMarginRight = CssValueParser.ParseLength(MarginRight, Size.Width, this);
-                if (MarginLeft.EndsWith('%'))
-                    return actualMarginRight;
-                _actualMarginRight = actualMarginRight;
-                return _actualMarginRight;
-            }
         }
 
         /// <summary>
@@ -801,8 +719,6 @@ namespace PeachPDF.Html.Core.Dom
                 return _actualBorderTopColor;
             }
         }
-
-        protected abstract RPoint GetActualLocation(string X, string Y);
 
         protected abstract RColor GetActualColor(string colorStr);
 
@@ -986,11 +902,6 @@ namespace PeachPDF.Html.Core.Dom
         }
 
         /// <summary>
-        /// Gets the actual font of the parent
-        /// </summary>
-        public RFont ActualParentFont => GetParent() == null ? ActualFont : GetParent().ActualFont;
-
-        /// <summary>
         /// Gets the font that should be actually used to paint the text of the box
         /// </summary>
         public RFont ActualFont
@@ -1016,16 +927,34 @@ namespace PeachPDF.Html.Core.Dom
                     st |= RFontStyle.Italic;
                 }
 
-                if (FontWeight != CssConstants.Normal && FontWeight != CssConstants.Lighter && !string.IsNullOrEmpty(FontWeight) && FontWeight != CssConstants.Inherit)
+                if (int.TryParse(FontWeight, out var fontWeightValue))
+                {
+                    if (fontWeightValue >= 700)
+                    {
+                        st |= RFontStyle.Bold;
+                    }
+                }
+                else if (FontWeight is CssConstants.Bold or CssConstants.Bolder)
                 {
                     st |= RFontStyle.Bold;
                 }
 
                 double fsize;
                 double parentSize = CssConstants.FontSize;
+                double rootSize = CssConstants.FontSize;
+                double remSize;
 
-                if (GetParent() != null)
-                    parentSize = GetParent().ActualFont.Size;
+                var parentBox = GetParent();
+
+                if (parentBox is not null)
+                {
+                    parentSize = GetParent()!.ActualFont.Size;
+                    remSize = GetRemHeight();
+                }
+                else
+                {
+                    remSize = CssConstants.FontSize;
+                }
 
                 fsize = FontSize switch
                 {
@@ -1038,7 +967,7 @@ namespace PeachPDF.Html.Core.Dom
                     CssConstants.XXLarge => CssConstants.FontSize + 4,
                     CssConstants.Smaller => parentSize - 2,
                     CssConstants.Larger => parentSize + 2,
-                    _ => CssValueParser.ParseLength(FontSize, parentSize, parentSize, null, true, true)
+                    _ => CssValueParser.ParseLength(FontSize, parentSize, parentSize, remSize, null, true, true)
                 };
 
                 if (fsize <= 1f)
@@ -1048,26 +977,21 @@ namespace PeachPDF.Html.Core.Dom
 
                 _actualFont = GetCachedFont(FontFamily, fsize, st) ?? GetCachedFont(CssConstants.DefaultFont, fsize, st);
 
-                return _actualFont;
+                if (_actualFont is null)
+                {
+                    throw new HtmlRenderException($"Cannot find font: {FontFamily} and Default Font {CssConstants.DefaultFont} is not installed", HtmlRenderErrorType.General);
+                }
+
+                return _actualFont!;
             }
         }
 
-        protected abstract RFont GetCachedFont(string fontFamily, double fsize, RFontStyle st);
+        protected abstract RFont? GetCachedFont(string fontFamily, double fsize, RFontStyle st);
 
         /// <summary>
         /// Gets the line height
         /// </summary>
-        public double ActualLineHeight
-        {
-            get
-            {
-                if (double.IsNaN(_actualLineHeight))
-                {
-                    _actualLineHeight = .9f * CssValueParser.ParseLength(LineHeight, Size.Height, this);
-                }
-                return _actualLineHeight;
-            }
-        }
+        public double ActualLineHeight => LineHeight is CssConstants.Normal ? 1.2 * GetEmHeight() : CssValueParser.ParseLength(LineHeight, Size.Height, this);
 
         /// <summary>
         /// Gets the text indentation (on first line only)
@@ -1134,11 +1058,13 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         public bool IsPositioned => Position is CssConstants.Relative or CssConstants.Absolute or CssConstants.Fixed or CssConstants.Sticky;
 
+        public string ZIndex { get; set; } = CssConstants.Auto;
+
         /// <summary>
         /// Get the parent of this css properties instance.
         /// </summary>
         /// <returns></returns>
-        protected abstract CssBoxProperties GetParent();
+        protected abstract CssBoxProperties? GetParent();
 
         /// <summary>
         /// Gets the height of the font in the specified units
@@ -1147,6 +1073,24 @@ namespace PeachPDF.Html.Core.Dom
         public double GetEmHeight()
         {
             return ActualFont.Height;
+        }
+
+        /// <summary>
+        /// Gets the height of the root font in the specified units
+        /// </summary>
+        /// <returns></returns>
+        public double GetRemHeight()
+        {
+            var box = this;
+            var parentBox = box.GetParent();
+
+            while (parentBox is not null)
+            {
+                box = parentBox;
+                parentBox = box.GetParent();
+            }
+
+            return box.GetEmHeight();
         }
 
         /// <summary>
@@ -1170,7 +1114,7 @@ namespace PeachPDF.Html.Core.Dom
         /// <param name="style">optional: the style to set</param>
         /// <param name="width">optional: the width to set</param>
         /// <param name="color">optional: the color to set</param>
-        protected void SetAllBorders(string style = null, string width = null, string color = null)
+        protected void SetAllBorders(string? style = null, string? width = null, string? color = null)
         {
             if (style != null)
                 BorderLeftStyle = BorderTopStyle = BorderRightStyle = BorderBottomStyle = style;
@@ -1191,7 +1135,7 @@ namespace PeachPDF.Html.Core.Dom
             if (WordSpacing == CssConstants.Normal) return;
 
             var len = RegexParserUtils.Search(RegexParserUtils.CssLengthRegex(), WordSpacing);
-            _actualWordSpacing += CssValueParser.ParseLength(len, 1, this);
+            _actualWordSpacing += CssValueParser.ParseLength(len!, 1, this);
         }
 
         /// <summary>
@@ -1199,7 +1143,7 @@ namespace PeachPDF.Html.Core.Dom
         /// </summary>
         /// <param name="everything">Set to true to inherit all CSS properties instead of only the ineritables</param>
         /// <param name="p">Box to inherit the properties</param>
-        protected void InheritStyle(CssBox p, bool everything)
+        protected void InheritStyle(CssBox? p, bool everything)
         {
             if (p == null) return;
 
@@ -1220,10 +1164,10 @@ namespace PeachPDF.Html.Core.Dom
             ListStyleImage = p.ListStyleImage;
             ListStylePosition = p.ListStylePosition;
             ListStyleType = p.ListStyleType;
-            ListStyle = p.ListStyle;
-            _lineHeight = p._lineHeight;
+            LineHeight = p.LineHeight;
             WordBreak = p.WordBreak;
             Direction = p.Direction;
+            BoxSizing = p.BoxSizing;
 
             if (!everything) return;
 
@@ -1258,8 +1202,8 @@ namespace PeachPDF.Html.Core.Dom
             MarginLeft = p.MarginLeft;
             MarginRight = p.MarginRight;
             MarginTop = p.MarginTop;
-            _left = p._left;
-            _lineHeight = p._lineHeight;
+            Left = p.Left;
+            LineHeight = p.LineHeight;
             Overflow = p.Overflow;
             _paddingLeft = p._paddingLeft;
             _paddingBottom = p._paddingBottom;
@@ -1270,7 +1214,7 @@ namespace PeachPDF.Html.Core.Dom
             TextDecorationLine = p.TextDecorationLine;
             TextDecorationStyle = p.TextDecorationStyle;
             TextDecorationColor = p.TextDecorationColor;
-            _top = p._top;
+            Top = p.Top;
             Position = p.Position;
             Width = p.Width;
             MaxWidth = p.MaxWidth;

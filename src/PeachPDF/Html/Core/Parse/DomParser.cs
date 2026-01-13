@@ -10,6 +10,8 @@
 // - Sun Tsu,
 // "The Art of War"
 
+using PeachPDF.CSS;
+using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Core.Dom;
 using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Handlers;
@@ -19,7 +21,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using ExCSS;
 
 namespace PeachPDF.Html.Core.Parse
 {
@@ -28,22 +29,17 @@ namespace PeachPDF.Html.Core.Parse
     /// </summary>
     internal sealed class DomParser
     {
-        #region Fields and Consts
-
         /// <summary>
         /// Parser for CSS
         /// </summary>
         private readonly CssParser _cssParser;
-
-        #endregion
-
 
         /// <summary>
         /// Init.
         /// </summary>
         public DomParser(CssParser cssParser)
         {
-            ArgChecker.AssertArgNotNull(cssParser, "cssParser");
+            ArgumentNullException.ThrowIfNull(cssParser);
 
             _cssParser = cssParser;
         }
@@ -57,9 +53,9 @@ namespace PeachPDF.Html.Core.Parse
         /// <returns>the root of the generated tree</returns>
         public async Task<(CssBox cssBox, CssData cssData)> GenerateCssTree(string html, HtmlContainerInt htmlContainer, CssData cssData)
         {
+            CssBox.ClearCounter();
             var root = HtmlParser.ParseDocument(html);
-            if (root is null) return (null, cssData);
-
+            root.IsRoot = true;
             root.HtmlContainer = htmlContainer;
             const bool cssDataChanged = false;
 
@@ -68,25 +64,60 @@ namespace PeachPDF.Html.Core.Parse
             //var media = htmlContainer.GetCssMediaType(cssData.MediaBlocks.Keys);
             var media = "print"; // TODO: fix this
 
-            CascadeApplyStyles(root, cssData, media);
+            var cssValueParser = new CssValueParser(htmlContainer.Adapter);
+
+            await CascadeApplyStyleFonts(cssData, htmlContainer.Adapter);
+
+            CascadeApplyPageStyles(htmlContainer, root, cssData);
+
+            CascadeApplyStyles(cssValueParser, root, cssData, media);
 
             CorrectTextBoxes(root);
 
             CorrectImgBoxes(root);
 
-            var followingBlock = true;
-            CorrectLineBreaksBlocks(root, ref followingBlock);
+            CorrectLineBreaksBlocks(root);
 
             CorrectInlineBoxesParent(root);
+
+            CorrectAbsolutelyPositionedInlineElements(root);
 
             CorrectBlockInsideInline(root);
 
             CorrectInlineBoxesParent(root);
-            return (root,cssData);
+
+            CorrectAnonymousTables(root);
+
+            return (root, cssData);
         }
 
 
         #region Private methods
+
+        private static async Task CascadeApplyStyleFonts(CssData cssData, RAdapter adapter)
+        {
+            foreach (var stylesheet in cssData.Stylesheets)
+            {
+                foreach (var fontRule in stylesheet.FontfaceSetRules)
+                {
+                    var fontFamilyName = CssValueParser.GetFontFaceFamilyName(fontRule.Family);
+                    var fontFaceDefinition = CssValueParser.GetFontFacePropertyValue(fontRule.Source);
+
+                    var isLoaded = false;
+
+                    if (fontFaceDefinition.Local is not null)
+                    {
+                        isLoaded = await adapter.AddLocalFontFamily(fontFamilyName, fontFaceDefinition.Local);
+                    }
+
+                    if (!isLoaded && fontFaceDefinition.Url is not null)
+                    {
+
+                        await adapter.AddFontFamilyFromUrl(fontFamilyName, fontFaceDefinition.Url, fontFaceDefinition.Format);
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// Read styles defined inside the dom structure in links and style elements.<br/>
@@ -103,12 +134,12 @@ namespace PeachPDF.Html.Core.Parse
             {
                 // Check for the <link rel=stylesheet> tag
                 if (box.HtmlTag.Name.Equals("link", StringComparison.CurrentCultureIgnoreCase) &&
-                    box.GetAttribute("rel", string.Empty).Equals("stylesheet", StringComparison.CurrentCultureIgnoreCase))
+                   box.GetAttribute("rel", string.Empty).Equals("stylesheet", StringComparison.CurrentCultureIgnoreCase))
                 {
                     CloneCssData(ref cssData, ref cssDataChanged);
-                    var stylesheet = await StylesheetLoadHandler.LoadStylesheet(htmlContainer, box.GetAttribute("href", string.Empty), box.HtmlTag.Attributes);
+                    var stylesheet = await StylesheetLoadHandler.LoadStylesheet(htmlContainer, box.GetAttribute("href", string.Empty));
                     if (stylesheet != null)
-                        _cssParser.ParseStyleSheet(cssData, stylesheet);
+                        await _cssParser.ParseStyleSheet(cssData, stylesheet);
                 }
 
                 // Check for the <style> tag
@@ -116,18 +147,46 @@ namespace PeachPDF.Html.Core.Parse
                 {
                     CloneCssData(ref cssData, ref cssDataChanged);
                     foreach (var child in box.Boxes)
-                        _cssParser.ParseStyleSheet(cssData, child.Text);
+                        await _cssParser.ParseStyleSheet(cssData, child.Text!);
                 }
             }
 
             foreach (var childBox in box.Boxes)
             {
-                (cssData,cssDataChanged) = await CascadeParseStyles(childBox, htmlContainer, cssData, cssDataChanged);
+                (cssData, cssDataChanged) = await CascadeParseStyles(childBox, htmlContainer, cssData, cssDataChanged);
             }
 
             return (cssData, cssDataChanged);
         }
 
+        private static void CascadeApplyPageStyles(HtmlContainerInt htmlContainer, CssBox root, CssData cssData)
+        {
+            foreach (var style in cssData.Stylesheets)
+            {
+                foreach (var pageRule in style.PageRules)
+                {
+                    if (pageRule.Style.MarginLeft.Length > 0)
+                    {
+                        htmlContainer.MarginLeft = CssValueParser.ParseLength(pageRule.Style.MarginLeft, htmlContainer.PageSize.Width, root);
+                    }
+
+                    if (pageRule.Style.MarginTop.Length > 0)
+                    {
+                        htmlContainer.MarginTop = CssValueParser.ParseLength(pageRule.Style.MarginTop, htmlContainer.PageSize.Width, root);
+                    }
+
+                    if (pageRule.Style.MarginBottom.Length > 0)
+                    {
+                        htmlContainer.MarginBottom = CssValueParser.ParseLength(pageRule.Style.MarginBottom, htmlContainer.PageSize.Width, root);
+                    }
+
+                    if (pageRule.Style.MarginRight.Length > 0)
+                    {
+                        htmlContainer.MarginRight = CssValueParser.ParseLength(pageRule.Style.MarginRight, htmlContainer.PageSize.Width, root);
+                    }
+                }
+            }
+        }
 
         /// <summary>
         /// Applies style to all boxes in the tree.<br/>
@@ -135,15 +194,22 @@ namespace PeachPDF.Html.Core.Parse
         /// If the html tag has "class" attribute and the class name has style defined apply that style on the tag css box.<br/>
         /// If the html tag has "style" attribute parse it and apply the parsed style on the tag css box.<br/>
         /// </summary>
+        /// <param name="valueParser">the css value parser to use</param>
         /// <param name="box">the box to apply the style to</param>
         /// <param name="cssData">the style data for the html</param>
         /// <param name="media">The media type to apply styles to</param>
-        private void CascadeApplyStyles(CssBox box, CssData cssData, string media)
+        private static void CascadeApplyStyles(CssValueParser valueParser, CssBox box, CssData cssData, string media)
         {
+            // Set initial styles
+            foreach (var style in CssDefaults.InitialValues)
+            {
+                CssUtils.SetPropertyValue(valueParser, box, style.Key, style.Value);
+            }
+
             box.InheritStyle();
 
             // try assign style using all wildcard
-            AssignCssBlocks(box, cssData, media);
+            var importantPropertyNames = AssignCssBlocks(valueParser, box, cssData, media);
 
             if (box.HtmlTag != null)
             {
@@ -155,11 +221,13 @@ namespace PeachPDF.Html.Core.Parse
                     var styleAttributeText = box.HtmlTag.TryGetAttribute("style");
                     var stylesheet = "* { " + styleAttributeText + " }";
 
-                    var block = _cssParser.ParseStyleSheet(stylesheet);
-                    if (block != null)
-                        AssignCssBlock(box, block.StyleRules.Single());
+                    var block = CssParser.ParseStyleSheet(stylesheet);
+                    AssignCssBlock(valueParser, box, block.StyleRules.Single(), importantPropertyNames);
                 }
             }
+
+            // Correct current color
+            CssUtils.ApplyCurrentColor(box, valueParser);
 
             // cascade text decoration only to boxes that actually have text so it will be handled correctly.
             if (box.TextDecoration != string.Empty && box.Text == null)
@@ -171,7 +239,7 @@ namespace PeachPDF.Html.Core.Parse
                     childBox.TextDecorationStyle = box.TextDecorationStyle;
                     childBox.TextDecorationColor = box.TextDecorationColor;
                 }
-                    
+
                 box.TextDecoration = string.Empty;
                 box.TextDecorationLine = string.Empty;
                 box.TextDecorationStyle = string.Empty;
@@ -180,46 +248,65 @@ namespace PeachPDF.Html.Core.Parse
 
             foreach (var childBox in box.Boxes)
             {
-                CascadeApplyStyles(childBox, cssData, media);
+                CascadeApplyStyles(valueParser, childBox, cssData, media);
             }
         }
 
         /// <summary>
         /// Assigns the given css style blocks to the given css box checking if matching.
         /// </summary>
+        /// <param name="valueParser">the css value parser to use</param>
         /// <param name="box">the css box to assign css to</param>
         /// <param name="cssData">the css data to use to get the matching css blocks</param>
         /// <param name="media">The media type to apply styles for</param>
-        private static void AssignCssBlocks(CssBox box, CssData cssData, string media)
+        /// <returns>The list of applied important property names</returns>
+        private static HashSet<string> AssignCssBlocks(CssValueParser valueParser, CssBox box, CssData cssData, string media)
         {
             var combinedBlocks = new List<IStyleRule>();
             var styleRules = cssData.GetStyleRules(media, box);
             combinedBlocks.AddRange(styleRules);
 
+            HashSet<string> importantPropertyNames = [];
+
             foreach (var block in combinedBlocks)
             {
-                AssignCssBlock(box, block);
+                AssignCssBlock(valueParser, box, block, importantPropertyNames);
             }
+
+            return importantPropertyNames;
         }
 
         /// <summary>
         /// Assigns the given css style block properties to the given css box.
         /// </summary>
+        /// <param name="valueParser">the css value parser to use</param>
         /// <param name="box">the css box to assign css to</param>
         /// <param name="stylesheetRule">the stylesheet rule to assign</param>
-        private static void AssignCssBlock(CssBox box, IStyleRule stylesheetRule)
+        /// <param name="importantPropertyNames">Carries the property names that have been marked important so they don't get re-applied</param>
+        private static void AssignCssBlock(CssValueParser valueParser, CssBox box, IStyleRule stylesheetRule, HashSet<string> importantPropertyNames)
         {
             foreach (var prop in stylesheetRule.Style)
             {
-                var value = prop.Value;
+                var value = prop.Value switch
+                {
+                    CssConstants.Inherit when box.ParentBox != null => CssUtils.GetPropertyValue(box.ParentBox, prop.Name),
+                    CssConstants.Initial => CssDefaults.InitialValues[prop.Name],
+                    _ => prop.Value
+                };
 
-                if (prop.Value == CssConstants.Inherit && box.ParentBox != null)
+                if (importantPropertyNames.Contains(prop.Name.ToLowerInvariant()))
                 {
-                    value = CssUtils.GetPropertyValue(box.ParentBox, prop.Name);
+                    continue;
                 }
-                if (IsStyleOnElementAllowed(box, prop.Name, value))
+
+                if (prop.IsImportant)
                 {
-                    CssUtils.SetPropertyValue(box, prop.Name, value);
+                    importantPropertyNames.Add(prop.Name.ToLowerInvariant());
+                }
+
+                if (value is not null && IsStyleOnElementAllowed(box, prop.Name, value))
+                {
+                    CssUtils.SetPropertyValue(valueParser, box, prop.Name, value);
                 }
             }
         }
@@ -273,21 +360,49 @@ namespace PeachPDF.Html.Core.Parse
         /// </summary>
         /// <param name="tag"></param>
         /// <param name="box"></param>
-        private void TranslateAttributes(HtmlTag tag, CssBox box)
+        private static void TranslateAttributes(HtmlTag tag, CssBox box)
         {
             if (!tag.HasAttributes()) return;
 
-            foreach (var att in tag.Attributes.Keys)
+            foreach (var att in tag.Attributes!.Keys)
             {
                 var value = tag.Attributes[att];
 
                 switch (att)
                 {
                     case HtmlConstants.Align:
-                        if (value is HtmlConstants.Left or HtmlConstants.Center or HtmlConstants.Right or HtmlConstants.Justify)
-                            box.TextAlign = value.ToLower();
+                        if (tag.Name is "img")
+                        {
+                            switch (value)
+                            {
+                                case HtmlConstants.Left:
+                                    box.VerticalAlign = CssConstants.Top;
+                                    box.Float = CssConstants.Left;
+                                    break;
+                                case HtmlConstants.Right:
+                                    box.VerticalAlign = CssConstants.Top;
+                                    box.Float = CssConstants.Right;
+                                    break;
+                                case HtmlConstants.Bottom:
+                                    box.VerticalAlign = CssConstants.Baseline;
+                                    break;
+                                case HtmlConstants.Middle:
+                                    box.VerticalAlign = CssConstants.PeachBaselineMiddle;
+                                    break;
+                                case HtmlConstants.Top:
+                                    box.VerticalAlign = CssConstants.Top;
+                                    break;
+                            }
+                        }
                         else
-                            box.VerticalAlign = value.ToLower();
+                        {
+                            if (value is HtmlConstants.Left or HtmlConstants.Center or HtmlConstants.Right or HtmlConstants.Justify)
+                                box.TextAlign = value.ToLower();
+                            else
+                                box.VerticalAlign = value.ToLower();
+
+                        }
+
                         break;
                     case HtmlConstants.Background:
                         box.BackgroundImage = value.ToLower();
@@ -328,7 +443,6 @@ namespace PeachPDF.Html.Core.Parse
                     case HtmlConstants.Face:
                         //box.FontFamily = _cssParser.ParseFontFamily(value);
                         throw new NotImplementedException();
-                        break;
                     case HtmlConstants.Height:
                         box.Height = TranslateLength(value);
                         break;
@@ -400,7 +514,7 @@ namespace PeachPDF.Html.Core.Parse
         /// </summary>
         /// <param name="table">the table element</param>
         /// <param name="action">the action to execute</param>
-        private static void SetForAllCells(CssBox table, ActionInt<CssBox> action)
+        private static void SetForAllCells(CssBox table, Action<CssBox> action)
         {
             foreach (var l1 in table.Boxes)
             {
@@ -432,10 +546,16 @@ namespace PeachPDF.Html.Core.Parse
             for (var i = box.Boxes.Count - 1; i >= 0; i--)
             {
                 var childBox = box.Boxes[i];
+
+                CssContentEngine.ApplyContent(childBox);
+
                 if (childBox.Text != null)
                 {
                     // is the box has text
                     var keepBox = !string.IsNullOrWhiteSpace(childBox.Text);
+
+                    // if the box is a br
+                    keepBox = keepBox || childBox.IsBrElement;
 
                     // is the box is pre-formatted
                     keepBox = keepBox || childBox.WhiteSpace == CssConstants.Pre || childBox.WhiteSpace == CssConstants.PreWrap;
@@ -457,7 +577,7 @@ namespace PeachPDF.Html.Core.Parse
                     else
                     {
                         // remove text box that has no 
-                        childBox.ParentBox.Boxes.RemoveAt(i);
+                        childBox.ParentBox!.Boxes.RemoveAt(i);
                     }
                 }
                 else
@@ -479,7 +599,7 @@ namespace PeachPDF.Html.Core.Parse
                 var childBox = box.Boxes[i];
                 if (childBox is CssBoxImage && childBox.Display == CssConstants.Block)
                 {
-                    var block = CssBox.CreateBlock(childBox.ParentBox, null, childBox);
+                    var block = CssBox.CreateBlock(childBox.ParentBox!, null, childBox);
                     childBox.ParentBox = block;
                     childBox.Display = CssConstants.Inline;
                 }
@@ -497,46 +617,31 @@ namespace PeachPDF.Html.Core.Parse
         /// but if it is after block box then it will have min-height of the font size so it will create empty line.
         /// </summary>
         /// <param name="box">the current box to correct its sub-tree</param>
-        /// <param name="followingBlock">used to know if the br is following a box so it should create an empty line or not so it only
         /// move to a new line</param>
-        private static void CorrectLineBreaksBlocks(CssBox box, ref bool followingBlock)
+        private static void CorrectLineBreaksBlocks(CssBox box)
         {
-            followingBlock = followingBlock || box.IsBlock;
             foreach (var childBox in box.Boxes)
             {
-                CorrectLineBreaksBlocks(childBox, ref followingBlock);
-                followingBlock = childBox.Words.Count == 0 && (followingBlock || childBox.IsBlock);
+                CorrectLineBreaksBlocks(childBox);
             }
 
-            int lastBr = -1;
-            CssBox brBox;
-            do
+            if (!box.IsBrElement)
             {
-                brBox = null;
-                for (int i = 0; i < box.Boxes.Count && brBox == null; i++)
-                {
-                    if (i > lastBr && box.Boxes[i].IsBrElement)
-                    {
-                        brBox = box.Boxes[i];
-                        lastBr = i;
-                    }
-                    else if (box.Boxes[i].Words.Count > 0)
-                    {
-                        followingBlock = false;
-                    }
-                    else if (box.Boxes[i].IsBlock)
-                    {
-                        followingBlock = true;
-                    }
-                }
+                return;
+            }
 
-                if (brBox != null)
+            var previousSibling = DomUtils.GetPreviousSibling(box);
+
+            if (previousSibling is null or { IsBlock: true })
+            {
+                var nextSibling = DomUtils.GetFollowingSiblings(box, b => b is { IsInline: true, IsBrElement: false }, true).FirstOrDefault();
+
+                if (nextSibling is null)
                 {
-                    brBox.Display = CssConstants.Block;
-                    if (followingBlock)
-                        brBox.Height = ".95em"; // TODO:a check the height to min-height when it is supported
+                    box.Text = "\n";
+                    box.ParseToWords();
                 }
-            } while (brBox != null);
+            }
         }
 
         /// <summary>
@@ -554,11 +659,11 @@ namespace PeachPDF.Html.Core.Parse
                     while (tempRightBox != null)
                     {
                         // loop on the created temp right box for the fixed box until no more need (optimization remove recursion)
-                        CssBox newTempRightBox = null;
+                        CssBox? newTempRightBox = null;
                         if (DomUtils.ContainsInlinesOnly(tempRightBox) && !ContainsInlinesOnlyDeep(tempRightBox))
                             newTempRightBox = CorrectBlockInsideInlineImp(tempRightBox);
 
-                        tempRightBox.ParentBox.SetAllBoxes(tempRightBox);
+                        tempRightBox.ParentBox!.SetAllBoxes(tempRightBox);
                         tempRightBox.ParentBox = null;
                         tempRightBox = newTempRightBox;
                     }
@@ -573,7 +678,7 @@ namespace PeachPDF.Html.Core.Parse
             }
             catch (Exception ex)
             {
-                box.HtmlContainer.ReportError(HtmlRenderErrorType.HtmlParsing, "Failed in block inside inline box correction", ex);
+                box.HtmlContainer?.ReportError(HtmlRenderErrorType.HtmlParsing, "Failed in block inside inline box correction", ex);
             }
         }
 
@@ -581,7 +686,7 @@ namespace PeachPDF.Html.Core.Parse
         /// Rearrange the DOM of the box to have block box with boxes before the inner block box and after.
         /// </summary>
         /// <param name="box">the box that has the problem</param>
-        private static CssBox CorrectBlockInsideInlineImp(CssBox box)
+        private static CssBox? CorrectBlockInsideInlineImp(CssBox box)
         {
             if (box.Display == CssConstants.Inline)
                 box.Display = CssConstants.Block;
@@ -629,7 +734,7 @@ namespace PeachPDF.Html.Core.Parse
         /// <param name="leftBlock">the left block box that is created for the split</param>
         private static void CorrectBlockSplitBadBox(CssBox parentBox, CssBox badBox, CssBox leftBlock)
         {
-            CssBox leftbox = null;
+            CssBox? leftbox = null;
             while (badBox.Boxes[0].IsInline && ContainsInlinesOnlyDeep(badBox.Boxes[0]))
             {
                 if (leftbox == null)
@@ -712,6 +817,203 @@ namespace PeachPDF.Html.Core.Parse
                     CorrectInlineBoxesParent(childBox);
                 }
             }
+        }
+
+
+        private static void CorrectAbsolutelyPositionedInlineElements(CssBox box)
+        {
+            if (box is { Display: CssConstants.Inline, Position: CssConstants.Absolute })
+            {
+                var blockBox = new CssBox(box.ParentBox, null);
+                blockBox.Display = CssConstants.Block;
+                blockBox.Position = CssConstants.Absolute;
+                blockBox.Left = box.Left;
+                blockBox.Top = box.Top;
+                blockBox.Bottom = box.Bottom;
+                blockBox.Right = box.Right;
+                blockBox.Width = box.Width;
+                blockBox.Height = box.Height;
+                blockBox.TextAlign = box.TextAlign;
+
+                box.Position = CssConstants.Static;
+                box.ParentBox = blockBox;
+            }
+
+            foreach (var childBox in box.Boxes.ToArray())
+            {
+                CorrectAbsolutelyPositionedInlineElements(childBox);
+            }
+        }
+
+        /// <summary>
+        /// Corrects the missing elements in tables per https://www.w3.org/TR/CSS2/tables.html#anonymous-boxes
+        /// </summary>
+        /// <param name="box"></param>
+        private static void CorrectAnonymousTables(CssBox box)
+        {
+            // 1. Remove irrelevant boxes
+            CorrectAnonymousTablesRemoveIrrelevantBoxes(box);
+
+            foreach (var childBox in box.Boxes.ToArray())
+            {
+                CorrectAnonymousTablesRemoveIrrelevantBoxes(childBox);
+            }
+
+
+            // 2. Generate missing child wrappers
+            CorrectAnonymousTablesGenerateMissingChildWrappers(box);
+
+            foreach (var childBox in box.Boxes.ToArray())
+            {
+                CorrectAnonymousTablesGenerateMissingChildWrappers(childBox);
+            }
+
+            // 3. Generate Missing Parents
+            CorrectAnonymousTablesGenerateMissingParents(box);
+
+            foreach (var childBox in box.Boxes.ToArray())
+            {
+                CorrectAnonymousTablesGenerateMissingParents(childBox);
+            }
+
+            foreach (var childBox in box.Boxes.ToArray())
+            {
+                CorrectAnonymousTables(childBox);
+            }
+        }
+
+        private static void CorrectAnonymousTablesRemoveIrrelevantBoxes(CssBox box)
+        {
+            // 1.1 All child boxes of a 'table-column' parent are treated as if they had 'display: none'
+            if (box.Display is CssConstants.TableColumn)
+            {
+                foreach (var childBox in box.Boxes)
+                {
+#if DEBUG
+                    Console.WriteLine($"dom: set child box {childBox.Id} of table-column parent {box.Id} to display: none");
+#endif
+
+                    childBox.Display = CssConstants.None;
+                }
+            }
+
+            // 1.2 If a child C of a 'table-column-group' parent is not a 'table-column' box, then it is treated as if it had 'display: none'.
+            if (box.ParentBox?.Display is CssConstants.TableColumnGroup && box.Display is not CssConstants.TableColumn)
+            {
+#if DEBUG
+                Console.WriteLine($"dom: set child box {box.Id} to display:none if parent is table-column-group and child is not table-column");
+#endif
+
+                box.Display = CssConstants.None;
+            }
+
+            // 1.3 This is handled via CorrectTextBoxes above
+            // 1.4 This is handled via CorrectTextBoxes above
+        }
+
+        private static void CorrectAnonymousTablesGenerateMissingChildWrappers(CssBox box)
+        {
+            // 2.1 If a child C of a 'table' or 'inline-table' box is not a proper table child, then generate an anonymous 'table-row' box around C and all consecutive siblings of C that are not proper table children.
+            if (box.ParentBox?.Display is CssConstants.Table)
+            {
+                if (!DomUtils.IsProperTableChild(box))
+                {
+#if DEBUG
+                    Console.WriteLine($"dom: if box {box.Id} is not a proper table child and parent is a table, then generate table around element");
+#endif
+
+                    var tableRowBox = new CssBox(box.ParentBox, null);
+                    tableRowBox.Display = CssConstants.TableRow;
+                    box.ParentBox = tableRowBox;
+                }
+            }
+
+            // 2.2 If a child C of a row group box is not a 'table-row' box, then generate an anonymous 'table-row' box around C and all consecutive siblings of C that are not 'table-row' boxes.
+            if (box.ParentBox?.IsTableRowGroupBox ?? false)
+            {
+                if (box.Display is not CssConstants.TableRow)
+                {
+#if DEBUG
+                    Console.WriteLine($"dom: if box {box.Id} is not a table row and parent is a table row group box, then generate table-row around element");
+#endif
+
+                    var tableRowBox = new CssBox(box.ParentBox, null);
+                    tableRowBox.Display = CssConstants.TableRow;
+                    box.ParentBox = tableRowBox;
+                }
+            }
+
+            // 2.3 If a child C of a 'table-row' box is not a 'table-cell', then generate an anonymous 'table-cell' box around C and all consecutive siblings of C that are not 'table-cell' boxes.
+            if (box.ParentBox?.Display is CssConstants.TableRow)
+            {
+                if (box.Display is not CssConstants.TableCell)
+                {
+
+#if DEBUG
+                    Console.WriteLine($"dom: if box {box.Id} is not a table cell and parent is a table row, then generate table-row around element and following  elements");
+#endif
+
+                    var followingMatchingSiblings =
+                        DomUtils.GetFollowingSiblings(box, sibling => sibling.Display is CssConstants.TableCell, true)
+                            .ToList();
+
+                    var tableCellBox = new CssBox(box.ParentBox, null);
+                    tableCellBox.Display = CssConstants.TableCell;
+                    box.ParentBox = tableCellBox;
+
+                    followingMatchingSiblings.ForEach(sib => sib.ParentBox = tableCellBox);
+                }
+            }
+        }
+
+        private static void CorrectAnonymousTablesGenerateMissingParents(CssBox box)
+        {
+            // 3.1 For each 'table-cell' box C in a sequence of consecutive internal table and 'table-caption' siblings, if C's parent is not a 'table-row' then generate an anonymous 'table-row' box around C and all consecutive siblings of C that are 'table-cell' boxes.
+            if (box.Display is CssConstants.TableCell)
+            {
+                if (box.ParentBox?.Display is not CssConstants.TableRow)
+                {
+                    var followingMatchingSiblings =
+                        DomUtils.GetFollowingSiblings(box, sibling => sibling.Display is CssConstants.TableCell, true)
+                            .ToList();
+
+                    var tableRowBox = new CssBox(box.ParentBox, null);
+                    tableRowBox.Display = CssConstants.TableRow;
+                    box.ParentBox = tableRowBox;
+
+                    followingMatchingSiblings.ForEach(sib => sib.ParentBox = tableRowBox);
+                }
+            }
+
+            // 3.2 For each proper table child C in a sequence of consecutive proper table children, if C is misparented then generate an anonymous 'table' or 'inline-table' box T around C and all consecutive siblings of C that are proper table children. (If C's parent is an 'inline' box, then T must be an 'inline-table' box; otherwise it must be a 'table' box.)
+            // - A 'table-row' is misparented if its parent is neither a row group box nor a 'table' or 'inline-table' box.
+            // - A 'table-column' box is misparented if its parent is neither a 'table-column-group' box nor a 'table' or 'inline-table' box.
+            // - A row group box, 'table-column-group' box, or 'table-caption' box is misparented if its parent is neither a 'table' box nor an 'inline-table' box.
+
+            if (DomUtils.IsProperTableChild(box))
+            {
+                var isMissingParent = box.ParentBox is null;
+                var isParentNotTable = box.ParentBox?.Display is not CssConstants.Table;
+                var isParentNotInlineTable = box.ParentBox?.Display is not CssConstants.InlineTable;
+
+                var isMisparented = isMissingParent && isParentNotTable && isParentNotInlineTable;
+
+                if (isMisparented)
+                {
+                    var parentDisplay = box.ParentBox is null || box.ParentBox.IsBlock ? CssConstants.Table : CssConstants.InlineTable;
+
+                    var followingMatchingSiblings =
+                        DomUtils.GetFollowingSiblings(box, DomUtils.IsProperTableChild, true)
+                            .ToList();
+
+                    var tableBox = new CssBox(box.ParentBox, null);
+                    tableBox.Display = parentDisplay;
+                    box.ParentBox = tableBox;
+
+                    followingMatchingSiblings.ForEach(sib => sib.ParentBox = tableBox);
+                }
+            }
+
         }
 
         /// <summary>

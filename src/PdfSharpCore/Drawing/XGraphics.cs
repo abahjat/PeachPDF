@@ -27,10 +27,10 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
-using System;
-using PeachPDF.PdfSharpCore.Pdf;
 using PeachPDF.PdfSharpCore.Drawing.Pdf;
+using PeachPDF.PdfSharpCore.Pdf;
 using PeachPDF.PdfSharpCore.Pdf.Advanced;
+using System;
 
 #pragma warning disable 1587
 // ReSharper disable UseNullPropagation
@@ -49,8 +49,8 @@ namespace PeachPDF.PdfSharpCore.Drawing  // #??? aufräumen
         DrawingPdfContent,
         DrawingBitmap,
     }
-    
-    
+
+
     /// <summary>
     /// Represents a drawing surface for a fixed size page.
     /// </summary>
@@ -122,6 +122,7 @@ namespace PeachPDF.PdfSharpCore.Drawing  // #??? aufräumen
 
             Initialize();
         }
+
         XGraphics(XSize size, XGraphicsUnit pageUnit, XPageDirection pageDirection)
         {
             _gsStack = new GraphicsStateStack(this);
@@ -1371,50 +1372,6 @@ namespace PeachPDF.PdfSharpCore.Drawing  // #??? aufräumen
                             "A XPdfForm cannot be drawn on itself.");
                 }
             }
-        }
-
-        // ----- DrawBarCode --------------------------------------------------------------------------
-
-        /// <summary>
-        /// Draws the specified bar code.
-        /// </summary>
-        public void DrawBarCode(BarCodes.BarCode barcode, XPoint position)
-        {
-            barcode.Render(this, XBrushes.Black, null, position);
-        }
-
-        /// <summary>
-        /// Draws the specified bar code.
-        /// </summary>
-        public void DrawBarCode(BarCodes.BarCode barcode, XBrush brush, XPoint position)
-        {
-            barcode.Render(this, brush, null, position);
-        }
-
-        /// <summary>
-        /// Draws the specified bar code.
-        /// </summary>
-        public void DrawBarCode(BarCodes.BarCode barcode, XBrush brush, XFont font, XPoint position)
-        {
-            barcode.Render(this, brush, font, position);
-        }
-
-        // ----- DrawMatrixCode -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Draws the specified data matrix code.
-        /// </summary>
-        public void DrawMatrixCode(BarCodes.MatrixCode matrixcode, XPoint position)
-        {
-            matrixcode.Render(this, XBrushes.Black, position);
-        }
-
-        /// <summary>
-        /// Draws the specified data matrix code.
-        /// </summary>
-        public void DrawMatrixCode(BarCodes.MatrixCode matrixcode, XBrush brush, XPoint position)
-        {
-            matrixcode.Render(this, brush, position);
         }
 
         #endregion

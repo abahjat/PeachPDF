@@ -10,11 +10,11 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using System;
-using System.Collections.Generic;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core.Utils;
+using System;
+using System.Collections.Generic;
 
 namespace PeachPDF.Html.Core.Handlers
 {
@@ -43,7 +43,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// <summary>
         /// cache of all the font used not to create same font again and again
         /// </summary>
-        private readonly Dictionary<string, Dictionary<double, Dictionary<RFontStyle, RFont>>> _fontsCache = new(StringComparer.InvariantCultureIgnoreCase);
+        private readonly Dictionary<string, Dictionary<double, Dictionary<RFontStyle, RFont?>>> _fontsCache = new(StringComparer.InvariantCultureIgnoreCase);
 
         #endregion
 
@@ -53,9 +53,14 @@ namespace PeachPDF.Html.Core.Handlers
         /// </summary>
         public FontsHandler(RAdapter adapter)
         {
-            ArgChecker.AssertArgNotNull(adapter, "global");
+            ArgumentNullException.ThrowIfNull(adapter, "global");
 
             _adapter = adapter;
+        }
+
+        public void ClearCache()
+        {
+            _fontsCache.Clear();
         }
 
         /// <summary>
@@ -68,7 +73,7 @@ namespace PeachPDF.Html.Core.Handlers
             bool exists = _existingFontFamilies.ContainsKey(family);
             if (!exists)
             {
-                if (_fontsMapping.TryGetValue(family, out string mappedFamily))
+                if (_fontsMapping.TryGetValue(family, out var mappedFamily))
                 {
                     exists = _existingFontFamilies.ContainsKey(mappedFamily);
                 }
@@ -82,7 +87,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// <param name="fontFamily">The font family to add.</param>
         public void AddFontFamily(RFontFamily fontFamily)
         {
-            ArgChecker.AssertArgNotNull(fontFamily, "family");
+            ArgumentNullException.ThrowIfNull(fontFamily, "family");
 
             _existingFontFamilies[fontFamily.Name] = fontFamily;
         }
@@ -107,7 +112,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// Improve performance not to create same font multiple times.
         /// </summary>
         /// <returns>cached font instance</returns>
-        public RFont GetCachedFont(string family, double size, RFontStyle style)
+        public RFont? GetCachedFont(string family, double size, RFontStyle style)
         {
             var font = TryGetFont(family, size, style);
 
@@ -115,7 +120,7 @@ namespace PeachPDF.Html.Core.Handlers
             {
                 if (!_existingFontFamilies.TryGetValue(family, out var existingFontFamily))
                 {
-                    if (_fontsMapping.TryGetValue(family, out string mappedFamily))
+                    if (_fontsMapping.TryGetValue(family, out var mappedFamily))
                     {
                         font = TryGetFont(mappedFamily, size, style);
                         if (font == null)
@@ -143,9 +148,9 @@ namespace PeachPDF.Html.Core.Handlers
         /// <summary>
         /// Get cached font if it exists in cache or null if it is not.
         /// </summary>
-        private RFont TryGetFont(string family, double size, RFontStyle style)
+        private RFont? TryGetFont(string family, double size, RFontStyle style)
         {
-            RFont font = null;
+            RFont? font = null;
 
             if (_fontsCache.TryGetValue(family, out var a))
             {
@@ -155,14 +160,14 @@ namespace PeachPDF.Html.Core.Handlers
                 }
                 else
                 {
-                    _fontsCache[family][size] = new Dictionary<RFontStyle, RFont>();
+                    _fontsCache[family][size] = [];
                 }
             }
             else
             {
-                _fontsCache[family] = new Dictionary<double, Dictionary<RFontStyle, RFont>>
+                _fontsCache[family] = new Dictionary<double, Dictionary<RFontStyle, RFont?>>
                 {
-                    [size] = new Dictionary<RFontStyle, RFont>()
+                    [size] = new()
                 };
             }
             return font;
@@ -173,7 +178,7 @@ namespace PeachPDF.Html.Core.Handlers
         /// </summary>
         private RFont CreateFont(string family, double size, RFontStyle style)
         {
-            RFontFamily fontFamily;
+            RFontFamily? fontFamily;
             try
             {
                 return _existingFontFamilies.TryGetValue(family, out fontFamily)

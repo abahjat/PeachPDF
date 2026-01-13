@@ -18,6 +18,7 @@ using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core
@@ -34,7 +35,7 @@ namespace PeachPDF.Html.Core
     /// The max width and height of the rendered html.<br/>
     /// The max width will effect the html layout wrapping lines, resize images and tables where possible.<br/>
     /// The max height does NOT effect layout, but will not render outside it (clip).<br/>
-    /// <see cref="ActualSize"/> can exceed the max size by layout restrictions (unwrap-able line, set image size, etc.).<br/>
+    /// <see cref="ActualSize"/> can be exceed the max size by layout restrictions (unwrap-able line, set image size, etc.).<br/>
     /// Set zero for unlimited (width/height separately).<br/>
     /// </para>
     /// <para>
@@ -84,22 +85,28 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the top margin between the page start and the text
         /// </summary>
-        private int _marginTop;
+        private double _marginTop;
 
         /// <summary>
         /// the bottom margin between the page end and the text
         /// </summary>
-        private int _marginBottom;
+        private double _marginBottom;
 
         /// <summary>
         /// the left margin between the page start and the text
         /// </summary>
-        private int _marginLeft;
+        private double _marginLeft;
 
         /// <summary>
         /// the right margin between the page end and the text
         /// </summary>
-        private int _marginRight;
+        private double _marginRight;
+
+        /// <summary>
+        /// Document-level named string storage for CSS GCPM string-set property.
+        /// Stores named strings in document order to support first/last retrieval.
+        /// </summary>
+        private readonly List<NamedString> _namedStrings = new();
 
         #endregion
 
@@ -109,10 +116,10 @@ namespace PeachPDF.Html.Core
         /// </summary>
         public HtmlContainerInt(RAdapter adapter)
         {
-            ArgChecker.AssertArgNotNull(adapter, "global");
+            ArgumentNullException.ThrowIfNull(adapter);
 
             Adapter = adapter;
-            CssParser = new CssParser(adapter);
+            CssParser = new CssParser(adapter, this);
         }
 
         /// <summary>
@@ -128,12 +135,36 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the parsed stylesheet data used for handling the html
         /// </summary>
-        public CssData CssData { get; private set; }
+        public CssData? CssData { get; private set; }
 
         /// <summary>
         /// Gets or sets a value indicating if anti-aliasing should be avoided for geometry like backgrounds and borders (default - false).
         /// </summary>
         public bool AvoidGeometryAntialias { get; set; }
+
+        /// <summary>
+        /// Gets the document-level named strings in document order.
+        /// Used by CSS GCPM string-set and string() functions.
+        /// </summary>
+        internal IReadOnlyList<NamedString> NamedStrings => _namedStrings;
+
+        /// <summary>
+        /// Registers a named string at the document level in document order.
+        /// Used by CSS GCPM string-set property.
+        /// </summary>
+        /// <param name="namedString">The named string to register</param>
+        internal void RegisterNamedString(NamedString namedString)
+        {
+            _namedStrings.Add(namedString);
+        }
+
+        /// <summary>
+        /// Clears all document-level named strings.
+        /// </summary>
+        internal void ClearNamedStrings()
+        {
+            _namedStrings.Clear();
+        }
 
         /// <summary>
         /// The scroll offset of the html.<br/>
@@ -170,7 +201,7 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the top margin between the page start and the text
         /// </summary>
-        public int MarginTop
+        public double MarginTop
         {
             get => _marginTop;
             set
@@ -183,7 +214,7 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the bottom margin between the page end and the text
         /// </summary>
-        public int MarginBottom
+        public double MarginBottom
         {
             get => _marginBottom;
             set
@@ -196,7 +227,7 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the left margin between the page start and the text
         /// </summary>
-        public int MarginLeft
+        public double MarginLeft
         {
             get => _marginLeft;
             set
@@ -209,7 +240,7 @@ namespace PeachPDF.Html.Core
         /// <summary>
         /// the right margin between the page end and the text
         /// </summary>
-        public int MarginRight
+        public double MarginRight
         {
             get => _marginRight;
             set
@@ -220,34 +251,24 @@ namespace PeachPDF.Html.Core
         }
 
         /// <summary>
-        /// Set all 4 margins to the given value.
-        /// </summary>
-        /// <param name="value"></param>
-        public void SetMargins(int value)
-        {
-            if (value > -1)
-                _marginBottom = _marginLeft = _marginTop = _marginRight = value;
-        }
-
-        /// <summary>
         /// the root css box of the parsed html
         /// </summary>
-        internal CssBox Root { get; private set; }
+        internal CssBox? Root { get; private set; }
 
         /// <summary>
         /// Init with optional document and stylesheet.
         /// </summary>
         /// <param name="htmlSource">the html to init with, init empty if not given</param>
         /// <param name="baseCssData">optional: the stylesheet to init with, init default if not given</param>
-        public async Task SetHtml(string htmlSource, CssData baseCssData = null)
+        public async Task SetHtml(string htmlSource, CssData? baseCssData = null)
         {
             Clear();
             if (string.IsNullOrEmpty(htmlSource)) return;
 
-            CssData = baseCssData ?? Adapter.DefaultCssData;
+            CssData = baseCssData ?? await Adapter.GetDefaultCssData();
 
             DomParser parser = new(CssParser);
-            (Root,CssData) = await parser.GenerateCssTree(htmlSource, this, CssData);
+            (Root, CssData) = await parser.GenerateCssTree(htmlSource, this, CssData);
         }
 
         /// <summary>
@@ -259,31 +280,7 @@ namespace PeachPDF.Html.Core
 
             Root.Dispose();
             Root = null;
-        }
-
-        /// <summary>
-        /// Get html from the current DOM tree with style if requested.
-        /// </summary>
-        /// <param name="styleGen">Optional: controls the way styles are generated when html is generated (default: <see cref="HtmlGenerationStyle.Inline"/>)</param>
-        /// <returns>generated html</returns>
-        public string GetHtml(HtmlGenerationStyle styleGen = HtmlGenerationStyle.Inline)
-        {
-            return DomUtils.GenerateHtml(Root, styleGen);
-        }
-
-        /// <summary>
-        /// Get attribute value of element at the given x,y location by given key.<br/>
-        /// If more than one element exist with the attribute at the location the inner most is returned.
-        /// </summary>
-        /// <param name="location">the location to find the attribute at</param>
-        /// <param name="attribute">the attribute key to get value by</param>
-        /// <returns>found attribute value or null if not found</returns>
-        public string GetAttributeAt(RPoint location, string attribute)
-        {
-            ArgChecker.AssertArgNotNullOrEmpty(attribute, "attribute");
-
-            var cssBox = DomUtils.GetCssBox(Root, OffsetByScroll(location));
-            return cssBox != null ? DomUtils.GetAttribute(cssBox, attribute) : null;
+            ClearNamedStrings();
         }
 
         /// <summary>
@@ -301,17 +298,6 @@ namespace PeachPDF.Html.Core
                 linkElements.Add(new LinkElementData<RRect>(box.GetAttribute("id"), box.GetAttribute("href"), CommonUtils.GetFirstValueOrDefault(box.Rectangles, box.Bounds)));
             }
             return linkElements;
-        }
-
-        /// <summary>
-        /// Get css link href at the given x,y location.
-        /// </summary>
-        /// <param name="location">the location to find the link at</param>
-        /// <returns>css link href if exists or null</returns>
-        public string GetLinkAt(RPoint location)
-        {
-            var link = DomUtils.GetLinkBox(Root, OffsetByScroll(location));
-            return link?.HrefLink;
         }
 
         /// <summary>
@@ -335,13 +321,13 @@ namespace PeachPDF.Html.Core
         /// <param name="g">Device context to draw</param>
         public async ValueTask PerformLayout(RGraphics g)
         {
-            ArgChecker.AssertArgNotNull(g, "g");
+            ArgumentNullException.ThrowIfNull(g);
 
             ActualSize = RSize.Empty;
             if (Root is null) return;
 
             // if width is not restricted we set it to large value to get the actual later
-            Root.Size = new RSize(MaxSize.Width > 0 ? MaxSize.Width : 99999, 0);
+            Root.Size = new RSize(MaxSize.Width > 0 ? MaxSize.Width : PageSize.Width, 0);
             Root.Location = Location;
             await Root.PerformLayout(g);
 
@@ -352,22 +338,54 @@ namespace PeachPDF.Html.Core
                 ActualSize = RSize.Empty;
                 await Root.PerformLayout(g);
             }
+
+            // After layout, re-apply content to pseudo-elements now that named strings are set
+            ReapplyPseudoElementContent(Root);
+        }
+
+        /// <summary>
+        /// Recursively re-applies content to pseudo-elements after layout completes.
+        /// This ensures pseudo-elements can access named strings set during layout.
+        /// </summary>
+        private void ReapplyPseudoElementContent(CssBox box)
+        {
+            foreach (var childBox in box.Boxes)
+            {
+                if (childBox.IsPseudoElement && !string.IsNullOrEmpty(childBox.Content) && childBox.Content != CssConstants.None && childBox.Content != CssConstants.Normal)
+                {
+                    // Check if content contains string() function
+                    if (childBox.Content.Contains("string("))
+                    {
+                        CssContentEngine.ApplyContent(childBox);
+                        // Re-parse words after content changes
+                        if (!string.IsNullOrEmpty(childBox.Text))
+                        {
+                            childBox.ParseToWords();
+                        }
+                    }
+                }
+                ReapplyPseudoElementContent(childBox);
+            }
         }
 
         /// <summary>
         /// Render the html using the given device.
         /// </summary>
         /// <param name="g">the device to use to render</param>
-        public void PerformPaint(RGraphics g)
+        public async ValueTask PerformPaint(RGraphics g)
         {
-            ArgChecker.AssertArgNotNull(g, "g");
+            ArgumentNullException.ThrowIfNull(g);
 
             g.PushClip(MaxSize.Height > 0
                 ? new RRect(Location.X, Location.Y, Math.Min(MaxSize.Width, PageSize.Width),
                     Math.Min(MaxSize.Height, PageSize.Height))
                 : new RRect(MarginLeft, MarginTop, PageSize.Width, PageSize.Height));
 
-            Root?.Paint(g);
+            if (Root is not null)
+            {
+                Root.ResetPaint();
+                await Root.Paint(g);
+            }
 
             g.PopClip();
         }
@@ -388,7 +406,8 @@ namespace PeachPDF.Html.Core
         /// <param name="type">the type of error to report</param>
         /// <param name="message">the error message</param>
         /// <param name="exception">optional: the exception that occured</param>
-        internal void ReportError(HtmlRenderErrorType type, string message, Exception exception = null)
+        [DoesNotReturn]
+        internal void ReportError(HtmlRenderErrorType type, string message, Exception? exception = null)
         {
             throw new HtmlRenderException(message, type, exception);
         }

@@ -10,12 +10,16 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using System;
-using System.Globalization;
+using PeachPDF.CSS;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Adapters.Entities;
 using PeachPDF.Html.Core.Dom;
+using PeachPDF.Html.Core.Entities;
 using PeachPDF.Html.Core.Utils;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 
 namespace PeachPDF.Html.Core.Parse
 {
@@ -39,7 +43,7 @@ namespace PeachPDF.Html.Core.Parse
         /// </summary>
         public CssValueParser(RAdapter adapter)
         {
-            ArgChecker.AssertArgNotNull(adapter, "global");
+            ArgumentNullException.ThrowIfNull(adapter, "global");
 
             _adapter = adapter;
         }
@@ -86,6 +90,7 @@ namespace PeachPDF.Html.Core.Parse
                 if (!char.IsDigit(str[idx + i]))
                     return false;
             }
+
             return true;
         }
 
@@ -96,21 +101,20 @@ namespace PeachPDF.Html.Core.Parse
         /// <returns>true - valid, false - invalid</returns>
         public static bool IsValidLength(string value)
         {
-            if (value.Length > 1)
-            {
-                string number = string.Empty;
-                if (value.EndsWith("%"))
-                {
-                    number = value[..^1];
-                }
-                else if (value.Length > 2)
-                {
-                    number = value[..^2];
-                }
+            if (value.Length <= 1) return false;
 
-                return double.TryParse(number, out _);
+            var number = string.Empty;
+
+            if (value.EndsWith('%'))
+            {
+                number = value[..^1];
             }
-            return false;
+            else if (value.Length > 2)
+            {
+                number = value[..^2];
+            }
+
+            return double.TryParse(number, out _);
         }
 
         /// <summary>
@@ -126,13 +130,13 @@ namespace PeachPDF.Html.Core.Parse
                 return 0f;
             }
 
-            string toParse = number;
-            bool isPercent = number.EndsWith("%");
+            var toParse = number;
+            var isPercent = number.EndsWith('%');
 
             if (isPercent)
                 toParse = number[..^1];
 
-            if (!double.TryParse(toParse, NumberStyles.Number, NumberFormatInfo.InvariantInfo, out double result))
+            if (!double.TryParse(toParse, NumberStyles.Number, NumberFormatInfo.InvariantInfo, out var result))
             {
                 return 0f;
             }
@@ -155,20 +159,7 @@ namespace PeachPDF.Html.Core.Parse
         /// <returns>the parsed length value with adjustments</returns>
         public static double ParseLength(string length, double hundredPercent, CssBoxProperties box, bool fontAdjust = false)
         {
-            return ParseLength(length, hundredPercent, box.GetEmHeight(), null, fontAdjust, false);
-        }
-
-        /// <summary>
-        /// Parses a length. Lengths are followed by an unit identifier (e.g. 10px, 3.1em)
-        /// </summary>
-        /// <param name="length">Specified length</param>
-        /// <param name="hundredPercent">Equivalent to 100 percent when length is percentage</param>
-        /// <param name="box"></param>
-        /// <param name="defaultUnit"></param>
-        /// <returns>the parsed length value with adjustments</returns>
-        public static double ParseLength(string length, double hundredPercent, CssBoxProperties box, string defaultUnit)
-        {
-            return ParseLength(length, hundredPercent, box.GetEmHeight(), defaultUnit, false, false);
+            return ParseLength(length, hundredPercent, box.GetEmHeight(), box.GetRemHeight(), null, fontAdjust, false);
         }
 
         /// <summary>
@@ -177,34 +168,34 @@ namespace PeachPDF.Html.Core.Parse
         /// <param name="length">Specified length</param>
         /// <param name="hundredPercent">Equivalent to 100 percent when length is percentage</param>
         /// <param name="emFactor"></param>
+        /// <param name="remFactor"></param>
         /// <param name="defaultUnit"></param>
         /// <param name="fontAdjust">if the length is in pixels and the length is font related it needs to use 72/96 factor</param>
         /// <param name="returnPoints">Allows the return double to be in points. If false, result will be pixels</param>
         /// <returns>the parsed length value with adjustments</returns>
-        public static double ParseLength(string length, double hundredPercent, double emFactor, string defaultUnit, bool fontAdjust, bool returnPoints)
+        public static double ParseLength(string length, double hundredPercent, double emFactor, double remFactor, string? defaultUnit, bool fontAdjust, bool returnPoints)
         {
             //Return zero if no length specified, zero specified
             if (string.IsNullOrEmpty(length) || length == "0")
                 return 0f;
 
-            //If percentage, use ParseNumber
-            if (length.EndsWith("%"))
-                return ParseNumber(length, hundredPercent);
-
             //Get units of the length
-            string unit = GetUnit(length, defaultUnit, out bool hasUnit);
+            var (unit, numberValue) = GetUnit(length, defaultUnit, out var hasUnit);
 
             //Factor will depend on the unit
             double factor;
 
             //Number of the length
-            string number = hasUnit ? length[..^2] : length;
+            var number = hasUnit ? numberValue : ParseNumber(length, hundredPercent);
 
             //TODO: Units behave different in paper and in screen!
             switch (unit)
             {
                 case CssConstants.Em:
                     factor = emFactor;
+                    break;
+                case CssConstants.Rem:
+                    factor = remFactor;
                     break;
                 case CssConstants.Ex:
                     factor = emFactor / 2;
@@ -226,46 +217,39 @@ namespace PeachPDF.Html.Core.Parse
 
                     if (returnPoints)
                     {
-                        return ParseNumber(number, hundredPercent);
+                        return number!.Value;
                     }
 
                     break;
                 case CssConstants.Pc:
                     factor = 16f; // 1 pica = 12 points
                     break;
+                case CssConstants.Percent:
+                    factor = hundredPercent / 100d;
+                    break;
                 default:
                     factor = 0f;
                     break;
             }
 
-            return factor * ParseNumber(number, hundredPercent);
+            return factor * number!.Value;
         }
 
         /// <summary>
         /// Get the unit to use for the length, use default if no unit found in length string.
         /// </summary>
-        private static string GetUnit(string length, string defaultUnit, out bool hasUnit)
+        private static (string? unit, double? value) GetUnit(string length, string? defaultUnit, out bool hasUnit)
         {
-            var unit = length.Length >= 3 ? length.Substring(length.Length - 2, 2) : string.Empty;
-            switch (unit)
+            var tokens = GetCssTokens(length);
+
+            if (tokens is [UnitToken unitToken])
             {
-                case CssConstants.Em:
-                case CssConstants.Ex:
-                case CssConstants.Px:
-                case CssConstants.Mm:
-                case CssConstants.Cm:
-                case CssConstants.In:
-                case CssConstants.Pt:
-                case CssConstants.Pc:
-                    hasUnit = true;
-                    break;
-                default:
-                    hasUnit = false;
-                    unit = defaultUnit ?? String.Empty;
-                    break;
+                hasUnit = true;
+                return (unitToken.Unit, unitToken.Value);
             }
 
-            return unit;
+            hasUnit = false;
+            return (defaultUnit, null);
         }
 
         /// <summary>
@@ -285,7 +269,7 @@ namespace PeachPDF.Html.Core.Parse
         /// <returns>Color value</returns>
         public RColor GetActualColor(string colorValue)
         {
-            TryGetColor(colorValue, 0, colorValue.Length, out RColor color);
+            TryGetColor(colorValue, 0, colorValue.Length, out var color);
             return color;
         }
 
@@ -303,22 +287,15 @@ namespace PeachPDF.Html.Core.Parse
             {
                 if (!string.IsNullOrEmpty(str))
                 {
-                    if (length > 1 && str[idx] == '#')
+                    return length switch
                     {
-                        return GetColorByHex(str, idx, length, out color);
-                    }
-                    else if (length > 10 && CommonUtils.SubStringEquals(str, idx, 4, "rgb(") && str[length - 1] == ')')
-                    {
-                        return GetColorByRgb(str, idx, length, out color);
-                    }
-                    else if (length > 13 && CommonUtils.SubStringEquals(str, idx, 5, "rgba(") && str[length - 1] == ')')
-                    {
-                        return GetColorByRgba(str, idx, length, out color);
-                    }
-                    else
-                    {
-                        return GetColorByName(str, idx, length, out color);
-                    }
+                        > 1 when str[idx] == '#' => GetColorByHex(str, idx, length, out color),
+                        > 10 when CommonUtils.SubStringEquals(str, idx, 4, "rgb(") && str[length - 1] == ')' =>
+                            GetColorByRgb(str, idx, length, out color),
+                        > 13 when CommonUtils.SubStringEquals(str, idx, 5, "rgba(") && str[length - 1] == ')' =>
+                            GetColorByRgba(str, idx, length, out color),
+                        _ => GetColorByName(str, idx, length, out color)
+                    };
                 }
             }
             catch
@@ -340,19 +317,101 @@ namespace PeachPDF.Html.Core.Parse
                 return GetActualBorderWidth(CssConstants.Medium, b);
             }
 
-            switch (borderValue)
+            return borderValue switch
             {
-                case CssConstants.Thin:
-                    return 1f;
-                case CssConstants.Medium:
-                    return 2f;
-                case CssConstants.Thick:
-                    return 4f;
-                default:
-                    return Math.Abs(ParseLength(borderValue, 1, b));
-            }
+                CssConstants.Thin => 1f,
+                CssConstants.Medium => 2f,
+                CssConstants.Thick => 4f,
+                _ => Math.Abs(ParseLength(borderValue, 1, b))
+            };
         }
 
+        public string GetFontFamilyByName(string propValue)
+        {
+            int start = 0;
+            while (start < propValue.Length)
+            {
+                while (char.IsWhiteSpace(propValue[start]) || propValue[start] == ',' || propValue[start] == '\'' || propValue[start] == '"')
+                    start++;
+                var end = propValue.IndexOf(',', start);
+                if (end < 0)
+                    end = propValue.Length;
+                var adjEnd = end - 1;
+                while (char.IsWhiteSpace(propValue[adjEnd]) || propValue[adjEnd] == '\'' || propValue[adjEnd] == '"')
+                    adjEnd--;
+
+                var font = propValue.Substring(start, adjEnd - start + 1);
+
+                if (_adapter.IsFontExists(font))
+                {
+                    return font;
+                }
+
+                start = end;
+            }
+
+            return CssConstants.Inherit;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="propValue">the value of the property to parse</param>
+        /// <returns>parsed value</returns>
+        public static CssImage? GetImagePropertyValue(string propValue)
+        {
+            var tokens = GetCssTokens(propValue);
+
+            var urlToken = tokens.OfType<UrlToken>().SingleOrDefault();
+
+            return urlToken is not null ? CssImage.GetUrl(urlToken.Data) : null;
+        }
+
+        public static CssFontFace GetFontFacePropertyValue(string propValue)
+        {
+            var tokens = GetCssTokens(propValue);
+
+            var urlToken = tokens.OfType<UrlToken>().SingleOrDefault();
+            var formatToken = tokens.OfType<FunctionToken>().SingleOrDefault(x => x.Data == "format");
+            var techToken = tokens.OfType<FunctionToken>().SingleOrDefault(x => x.Data == "tech");
+            var localToken = tokens.OfType<FunctionToken>().SingleOrDefault(x => x.Data == "local");
+
+            return new CssFontFace(urlToken?.Data, formatToken?.ArgumentTokens?.FirstOrDefault()?.Data, techToken?.ArgumentTokens?.FirstOrDefault()?.Data, localToken?.ArgumentTokens?.FirstOrDefault()?.Data);
+        }
+
+        public static List<Token> GetCssTokens(string propValue)
+        {
+            var lexer = new Lexer(propValue);
+
+            List<Token> tokens = [];
+
+            Token token;
+
+            do
+            {
+                token = lexer.Get();
+
+                if (token.Type != TokenType.EndOfFile && token.Type != TokenType.Whitespace)
+                {
+                    tokens.Add(token);
+                }
+
+            } while (token.Type != TokenType.EndOfFile);
+
+            return tokens;
+        }
+
+        public static string GetFontFaceFamilyName(string propValue)
+        {
+            var tokens = GetCssTokens(propValue);
+
+            if (tokens is [StringToken stringToken])
+            {
+                return stringToken.Data;
+            }
+
+            return propValue;
+        }
 
         #region Private methods
 

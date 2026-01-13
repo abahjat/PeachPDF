@@ -1,7 +1,7 @@
-using System;
-using System.Globalization;
 using PeachPDF.Html.Core.Parse;
 using PeachPDF.Html.Core.Utils;
+using System;
+using System.Globalization;
 
 namespace PeachPDF.Html.Core.Dom
 {
@@ -52,10 +52,10 @@ namespace PeachPDF.Html.Core.Dom
             }
 
             //Get units of the length
-            string u = length.Substring(length.Length - 2, 2);
+            var u = length.Substring(length.Length - 2, 2);
 
             //Number of the length
-            string number = length[..^2];
+            var number = length[..^2];
 
             //TODO: Units behave different in paper and in screen!
             switch (u)
@@ -86,6 +86,10 @@ namespace PeachPDF.Html.Core.Dom
                     break;
                 case CssConstants.Pc:
                     Unit = CssUnit.Picas;
+                    break;
+                case CssConstants.Rem:
+                    Unit = CssUnit.Rem;
+                    IsRelative = true;
                     break;
                 default:
                     HasError = true;
@@ -182,48 +186,47 @@ namespace PeachPDF.Html.Core.Dom
             {
                 return string.Empty;
             }
-            else if (IsPercentage)
+
+            if (IsPercentage)
             {
                 return string.Format(NumberFormatInfo.InvariantInfo, "{0}%", Number);
             }
-            else
+
+            var u = string.Empty;
+
+            switch (Unit)
             {
-                var u = string.Empty;
-
-                switch (Unit)
-                {
-                    case CssUnit.None:
-                        break;
-                    case CssUnit.Ems:
-                        u = "em";
-                        break;
-                    case CssUnit.Pixels:
-                        u = "px";
-                        break;
-                    case CssUnit.Ex:
-                        u = "ex";
-                        break;
-                    case CssUnit.Inches:
-                        u = "in";
-                        break;
-                    case CssUnit.Centimeters:
-                        u = "cm";
-                        break;
-                    case CssUnit.Milimeters:
-                        u = "mm";
-                        break;
-                    case CssUnit.Points:
-                        u = "pt";
-                        break;
-                    case CssUnit.Picas:
-                        u = "pc";
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
-
-                return string.Format(NumberFormatInfo.InvariantInfo, "{0}{1}", Number, u);
+                case CssUnit.None:
+                    break;
+                case CssUnit.Ems:
+                    u = "em";
+                    break;
+                case CssUnit.Pixels:
+                    u = "px";
+                    break;
+                case CssUnit.Ex:
+                    u = "ex";
+                    break;
+                case CssUnit.Inches:
+                    u = "in";
+                    break;
+                case CssUnit.Centimeters:
+                    u = "cm";
+                    break;
+                case CssUnit.Milimeters:
+                    u = "mm";
+                    break;
+                case CssUnit.Points:
+                    u = "pt";
+                    break;
+                case CssUnit.Picas:
+                    u = "pc";
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
+
+            return string.Format(NumberFormatInfo.InvariantInfo, "{0}{1}", Number, u);
         }
 
         #endregion

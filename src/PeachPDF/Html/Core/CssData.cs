@@ -10,13 +10,15 @@
 // - Sun Tsu,
 // "The Art of War"
 
-using ExCSS;
+using PeachPDF.CSS;
 using PeachPDF.Html.Adapters;
 using PeachPDF.Html.Core.Dom;
 using PeachPDF.Html.Core.Parse;
+using PeachPDF.Html.Core.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace PeachPDF.Html.Core
 {
@@ -47,10 +49,10 @@ namespace PeachPDF.Html.Core
         /// <param name="stylesheet">the stylesheet source to parse</param>
         /// <param name="combineWithDefault">true - combine the parsed css data with default css data, false - return only the parsed css data</param>
         /// <returns>the parsed css data</returns>
-        public static CssData Parse(RAdapter adapter, string stylesheet, bool combineWithDefault = true)
+        public static async Task<CssData> Parse(RAdapter adapter, string stylesheet, bool combineWithDefault = true)
         {
-            var parser = new CssParser(adapter);
-            return parser.ParseStyleSheet(stylesheet, combineWithDefault);
+            var parser = new CssParser(adapter, null);
+            return await parser.ParseStyleSheet(stylesheet, combineWithDefault);
         }
 
         internal IEnumerable<IStyleRule> GetStyleRules(string media, CssBox box)
@@ -83,7 +85,7 @@ namespace PeachPDF.Html.Core
             return styleRules.Where(rule => DoesSelectorMatch(rule.Selector, box));
         }
 
-        private static bool DoesSelectorMatch(ISelector selector, CssBox box)
+        private static bool DoesSelectorMatch(ISelector selector, CssBox? box)
         {
             return selector switch
             {
@@ -99,27 +101,94 @@ namespace PeachPDF.Html.Core
                 IdSelector idSelector => DoesSelectorMatch(idSelector, box),
                 AttrAvailableSelector attrAvailableSelector => DoesSelectorMatch(attrAvailableSelector, box),
                 AttrContainsSelector attrContainsSelector => DoesSelectorMatch(attrContainsSelector, box),
+                AttrListSelector attrListSelector => DoesSelectorMatch(attrListSelector, box),
+                FirstChildSelector firstChildSelector => DoesSelectorMatch(firstChildSelector, box),
                 _ => false
             };
         }
-        private static bool DoesSelectorMatch(ListSelector listSelector, CssBox box)
+        private static bool DoesSelectorMatch(ListSelector listSelector, CssBox? box)
         {
             return listSelector.Any(selector => DoesSelectorMatch(selector, box));
         }
 
-        private static bool DoesSelectorMatch(CompoundSelector compoundSelector, CssBox box)
+        private static bool DoesSelectorMatch(CompoundSelector compoundSelector, CssBox? box)
         {
-            return compoundSelector.All(selector => DoesSelectorMatch(selector, box));
+            if (box is null)
+            {
+                return false;
+            }
+
+            var lastSelector = compoundSelector.Last();
+
+            if (lastSelector is not PseudoElementSelector or FirstChildSelector)
+                return compoundSelector.All(selector => DoesSelectorMatch(selector, box));
+
+            if (lastSelector is PseudoElementSelector pseudoElementSelector)
+            {
+                var referenceBox = box.IsPseudoElement ? box.ParentBox : box;
+
+                var isMatchWithoutPseudoElement = compoundSelector
+                    .Where(x => x is not PseudoElementSelector)
+                    .All(selector => DoesSelectorMatch(selector, referenceBox));
+
+                if (!isMatchWithoutPseudoElement) return false;
+
+                if (box.IsPseudoElement)
+                {
+                    return DoesSelectorMatch(pseudoElementSelector, box);
+                }
+
+                switch (pseudoElementSelector.Name)
+                {
+                    case CssConstants.Before:
+                        {
+                            var beforePseudoBox = new CssBox(box, null)
+                            {
+                                IsBeforePseudoElement = true
+                            };
+
+                            beforePseudoBox.InheritStyle(box);
+                            box.Boxes.Remove(beforePseudoBox);
+                            box.Boxes.Insert(0, beforePseudoBox);
+                            break;
+                        }
+                    case CssConstants.After:
+                        {
+                            var afterPseudoBox = new CssBox(box, null)
+                            {
+                                IsAfterPseudoElement = true
+                            };
+
+                            afterPseudoBox.InheritStyle(box);
+                            box.Boxes.Remove(afterPseudoBox);
+                            box.Boxes.Add(afterPseudoBox);
+                            break;
+                        }
+                }
+            }
+
+            if (lastSelector is FirstChildSelector firstChildSelector)
+            {
+                var referenceBox = DomUtils.GetNearestParentElementBox(box);
+
+                var isMatchWithoutNthChildElement = compoundSelector
+                    .Where(x => x is not FirstChildSelector)
+                    .All(selector => DoesSelectorMatch(selector, referenceBox));
+
+                return isMatchWithoutNthChildElement && DoesSelectorMatch(firstChildSelector, box);
+            }
+
+            return false;
         }
 
-        private static bool DoesSelectorMatch(TypeSelector typeSelector, CssBox box)
+        private static bool DoesSelectorMatch(TypeSelector typeSelector, CssBox? box)
         {
-            return box.HtmlTag is not null && typeSelector.Name.Equals(box.HtmlTag.Name, StringComparison.InvariantCultureIgnoreCase);
+            return box?.HtmlTag is not null && typeSelector.Name.Equals(box.HtmlTag.Name, StringComparison.InvariantCultureIgnoreCase);
         }
 
-        private static bool DoesSelectorMatch(ClassSelector classSelector, CssBox box)
+        private static bool DoesSelectorMatch(ClassSelector classSelector, CssBox? box)
         {
-            if (box.HtmlTag is not null && box.HtmlTag.Attributes.TryGetValue("class", out var classNames))
+            if (box?.HtmlTag?.Attributes is not null && box.HtmlTag.Attributes.TryGetValue("class", out var classNames))
             {
                 return classNames.Split(' ').Any(className =>
                     className.Equals(classSelector.Class, StringComparison.InvariantCultureIgnoreCase));
@@ -128,9 +197,9 @@ namespace PeachPDF.Html.Core
             return false;
         }
 
-        private static bool DoesSelectorMatch(IdSelector idSelector, CssBox box)
+        private static bool DoesSelectorMatch(IdSelector idSelector, CssBox? box)
         {
-            if (box.HtmlTag is not null && box.HtmlTag.Attributes.TryGetValue("id", out var id))
+            if (box?.HtmlTag?.Attributes is not null && box.HtmlTag.Attributes.TryGetValue("id", out var id))
             {
                 return id.Equals(idSelector.Id, StringComparison.InvariantCultureIgnoreCase);
             }
@@ -138,9 +207,9 @@ namespace PeachPDF.Html.Core
             return false;
         }
 
-        private static bool DoesSelectorMatch(AttrAvailableSelector attrAvailableSelector, CssBox box)
+        private static bool DoesSelectorMatch(AttrAvailableSelector attrAvailableSelector, CssBox? box)
         {
-            if (box.HtmlTag is null)
+            if (box?.HtmlTag?.Attributes is null)
             {
                 return false;
             }
@@ -156,9 +225,9 @@ namespace PeachPDF.Html.Core
             return false;
         }
 
-        private static bool DoesSelectorMatch(AttrMatchSelector attrMatchSelector, CssBox box)
+        private static bool DoesSelectorMatch(AttrMatchSelector attrMatchSelector, CssBox? box)
         {
-            if (box.HtmlTag is null)
+            if (box?.HtmlTag?.Attributes is null)
             {
                 return false;
             }
@@ -174,9 +243,29 @@ namespace PeachPDF.Html.Core
             return false;
         }
 
-        private static bool DoesSelectorMatch(AttrContainsSelector attrContainsSelector, CssBox box)
+        private static bool DoesSelectorMatch(AttrListSelector attrListSelector, CssBox? box)
         {
-            if (box.HtmlTag is null)
+            if (box?.HtmlTag?.Attributes is null)
+            {
+                return false;
+            }
+
+            foreach (var attribute in box.HtmlTag.Attributes)
+            {
+                if (attribute.Key.Equals(attrListSelector.Attribute, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    var attributeValues = attribute.Value.Split(' ').Where(x => x.Length > 0).ToArray();
+
+                    return attributeValues.Any(value => value.Equals(attrListSelector.Value, StringComparison.InvariantCultureIgnoreCase));
+                }
+            }
+
+            return false;
+        }
+
+        private static bool DoesSelectorMatch(AttrContainsSelector attrContainsSelector, CssBox? box)
+        {
+            if (box?.HtmlTag?.Attributes is null)
             {
                 return false;
             }
@@ -192,75 +281,120 @@ namespace PeachPDF.Html.Core
             return false;
         }
 
-        private static bool DoesSelectorMatch(PseudoElementSelector pseudoElementSelector, CssBox box)
+        private static bool DoesSelectorMatch(PseudoClassSelector pseudoClassSelector, CssBox? box)
         {
-            // TODO: implement this
-            return false;
+            return pseudoClassSelector.Class == "link" && box is not null && box.IsClickable;
         }
 
-        private static bool DoesSelectorMatch(PseudoClassSelector pseudoClassSelector, CssBox box)
+        private static bool DoesSelectorMatch(PseudoElementSelector pseudoElementSelector, CssBox? box)
         {
-            return pseudoClassSelector.Class == "link" && box.IsClickable;
+            if (box is null)
+            {
+                return false;
+            }
+
+            switch (pseudoElementSelector.Name)
+            {
+                case CssConstants.Before when box.IsBeforePseudoElement:
+                case CssConstants.After when box.IsAfterPseudoElement:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
-        private static bool DoesSelectorMatch(ComplexSelector complexSelector, CssBox box)
+        private static bool DoesSelectorMatch(FirstChildSelector firstChildSelector, CssBox? box)
         {
-            CssBox matchingAncestor = null;
+            if (box?.HtmlTag is null)
+            {
+                return false;
+            }
 
-            foreach (var selector in complexSelector)
+            var parentBox = DomUtils.GetNearestParentElementBox(box);
+
+            if (parentBox is null)
+            {
+                return false;
+            }
+
+            var currentIndex = parentBox.Boxes.Where(b => b.HtmlTag is not null).ToList();
+            return currentIndex.IndexOf(box) == firstChildSelector.Offset;
+        }
+
+        private static bool DoesSelectorMatch(ComplexSelector complexSelector, CssBox? box)
+        {
+            var selectorsInReverse = complexSelector.Reverse();
+
+            var isLowestItem = true;
+            var isMatch = false;
+
+            var currentLevel = box;
+
+            foreach (var selector in selectorsInReverse)
             {
                 if (selector.Selector is not null)
                 {
-                    var currentBox = box;
-                    bool isMatch;
-
-                    if (selector.Delimiter == ">")
+                    if (isLowestItem)
                     {
-                        if (currentBox.ParentBox is null)
-                        {
-                            return false;
-                        }
-
-                        isMatch = DoesSelectorMatch(selector.Selector, currentBox.ParentBox);
-                        matchingAncestor = currentBox.ParentBox;
+                        isMatch = DoesSelectorMatch(selector.Selector, currentLevel);
 
                         if (!isMatch)
                         {
                             return false;
                         }
+
+                        isLowestItem = false;
+                        currentLevel = box?.ParentBox;
+                        continue;
                     }
-                    else
+
+                    if (currentLevel is null)
                     {
-                        do
-                        {
-                            isMatch = DoesSelectorMatch(selector.Selector, currentBox);
+                        return false;
+                    }
+
+                    switch (selector.Delimiter)
+                    {
+                        case ">":
+
+                            isMatch = DoesSelectorMatch(selector.Selector, currentLevel);
 
                             if (!isMatch)
                             {
-                                currentBox = currentBox.ParentBox;
+                                return false;
                             }
 
-                        } while (!isMatch && currentBox is not null && (matchingAncestor is not null && currentBox == matchingAncestor));
+                            break;
+                        case " " or null:
+                            {
+                                do
+                                {
+                                    isMatch = DoesSelectorMatch(selector.Selector, currentLevel);
 
-                        if (!isMatch)
-                        {
-                            return false;
-                        }
+                                    if (!isMatch)
+                                    {
+                                        currentLevel = currentLevel.ParentBox;
+                                    }
 
-                        matchingAncestor = currentBox;
+                                } while (!isMatch && currentLevel is not null);
+
+                                if (!isMatch)
+                                {
+                                    return false;
+                                }
+
+                                break;
+                            }
                     }
-
-
                 }
                 else
                 {
-                    throw new NotImplementedException();
+                    return false;
                 }
             }
 
-            return false;
+            return isMatch;
         }
-
 
         public CssData Clone()
         {

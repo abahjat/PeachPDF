@@ -12,15 +12,14 @@
 
 #nullable enable
 
-using System;
+using PeachPDF.Html.Adapters.Entities;
+using PeachPDF.Html.Core;
+using PeachPDF.Html.Core.Handlers;
+using PeachPDF.Html.Core.Utils;
+using PeachPDF.Network;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using PeachPDF.Html.Adapters.Entities;
-using PeachPDF.Html.Core;
-using PeachPDF.Html.Core.Entities;
-using PeachPDF.Html.Core.Handlers;
-using PeachPDF.Html.Core.Utils;
 
 namespace PeachPDF.Html.Adapters
 {
@@ -44,12 +43,12 @@ namespace PeachPDF.Html.Adapters
         /// <summary>
         /// cache of brush color to brush instance
         /// </summary>
-        private readonly Dictionary<RColor, RBrush> _brushesCache = new();
+        private readonly Dictionary<RColor, RBrush> _brushesCache = [];
 
         /// <summary>
         /// cache of pen color to pen instance
         /// </summary>
-        private readonly Dictionary<RColor, RPen> _penCache = new();
+        private readonly Dictionary<RColor, RPen> _penCache = [];
 
         /// <summary>
         /// cache of all the font used not to create same font again and again
@@ -60,16 +59,6 @@ namespace PeachPDF.Html.Adapters
         /// default CSS parsed data singleton
         /// </summary>
         private CssData? _defaultCssData;
-
-        /// <summary>
-        /// image used to draw loading image icon
-        /// </summary>
-        private RImage? _loadImage;
-
-        /// <summary>
-        /// image used to draw error image icon
-        /// </summary>
-        private RImage? _errorImage;
 
         #endregion
 
@@ -85,10 +74,11 @@ namespace PeachPDF.Html.Adapters
         /// <summary>
         /// Get the default CSS stylesheet data.
         /// </summary>
-        public CssData DefaultCssData
-        {
-            get { return _defaultCssData ??= CssData.Parse(this, CssDefaults.DefaultStyleSheet, false); }
-        }
+        public async Task<CssData> GetDefaultCssData() => _defaultCssData ??= await CssData.Parse(this, CssDefaults.DefaultStyleSheet, false);
+
+        public abstract RUri? BaseUri { get; }
+
+        public void ClearFontCache() => _fontsHandler.ClearCache();
 
         /// <summary>
         /// Resolve color value from given color name.
@@ -182,6 +172,21 @@ namespace PeachPDF.Html.Adapters
             _fontsHandler.AddFontFamily(fontFamily);
         }
 
+        public async Task AddFontFamilyFromUrl(string fontFamilyName, string url, string? format)
+        {
+            var resourceStream = await GetResourceStream(new RUri(url));
+
+            if (resourceStream?.ResourceStream is not null)
+            {
+                await AddFontFromStream(fontFamilyName, resourceStream.ResourceStream, format);
+            }
+        }
+
+        public async Task<bool> AddLocalFontFamily(string fontFamilyName, string localFontFaceName)
+        {
+            return await AddLocalFont(fontFamilyName, localFontFaceName);
+        }
+
         /// <summary>
         /// Adds a font mapping from <paramref name="fromFamily"/> to <paramref name="toFamily"/> iff the <paramref name="fromFamily"/> is not found.<br/>
         /// When the <paramref name="fromFamily"/> font is used in rendered html and is not found in existing 
@@ -201,35 +206,9 @@ namespace PeachPDF.Html.Adapters
         /// <param name="size">font size</param>
         /// <param name="style">font style</param>
         /// <returns>font instance</returns>
-        public RFont GetFont(string family, double size, RFontStyle style)
+        public RFont? GetFont(string family, double size, RFontStyle style)
         {
             return _fontsHandler.GetCachedFont(family, size, style);
-        }
-
-        /// <summary>
-        /// Get image to be used while HTML image is loading.
-        /// </summary>
-        public RImage? GetLoadingImage()
-        {
-            if (_loadImage != null) return _loadImage;
-
-            var stream = typeof(HtmlRendererUtils).Assembly.GetManifestResourceStream("PeachPDF.Html.Core.Utils.ImageLoad.png");
-            if (stream != null)
-                _loadImage = ImageFromStream(stream);
-            return _loadImage;
-        }
-
-        /// <summary>
-        /// Get image to be used if HTML image load failed.
-        /// </summary>
-        public RImage? GetLoadingFailedImage()
-        {
-            if (_errorImage != null) return _errorImage;
-
-            var stream = typeof(HtmlRendererUtils).Assembly.GetManifestResourceStream("PeachPDF.Html.Core.Utils.ImageError.png");
-            if (stream != null)
-                _errorImage = ImageFromStream(stream);
-            return _errorImage;
         }
 
         /// <summary>
@@ -264,7 +243,7 @@ namespace PeachPDF.Html.Adapters
         /// </summary>
         /// <param name="uri">Uri to load</param>
         /// <returns>The stream of the contents</returns>
-        public abstract Task<Stream?> GetResourceStream(Uri uri);
+        public abstract Task<RNetworkResponse?> GetResourceStream(RUri uri);
 
         #region Private/Protected methods
 
@@ -331,6 +310,10 @@ namespace PeachPDF.Html.Adapters
         /// <param name="style">font style</param>
         /// <returns>font instance</returns>
         protected abstract RFont CreateFontInt(RFontFamily family, double size, RFontStyle style);
+
+        protected abstract Task AddFontFromStream(string fontFamilyName, Stream stream, string? format);
+
+        protected abstract Task<bool> AddLocalFont(string fontFamilyName, string localFontFaceName);
 
         #endregion
     }
